@@ -1,0 +1,47 @@
+# Atomcraft test harness configuration.
+#
+#   cp atomcraft-test.conf.example atomcraft-test.conf   and edit.
+#
+# Every value can also be set in the environment, which wins over this file.
+# './bootstrap.sh --detect' will look in the usual places and print a starting point.
+# There are no built-in path defaults: installs differ by store, platform, and user.
+
+# --- where the game is installed ------------------------------------------------------
+# The directory containing AtomCraft.exe, AtomCraft.pck and data_Atomcraft_windows_x86_64/.
+#
+#   Steam (Linux):   <library>/steamapps/common/Atomcraft
+#   itch.io (Linux): wherever the itch app installed it, e.g. ~/Games/itch/atomcraft
+#   Windows:         C:/Program Files (x86)/Steam/steamapps/common/Atomcraft
+#                    or the itch.io install directory
+GAME_DIR=""
+
+# --- how to run it ---------------------------------------------------------------------
+# proton  Linux, Steam's Proton. Needs PROTON and STEAM_CLIENT.
+# wine    Linux or macOS, plain Wine. Needs WINE (defaults to "wine" on PATH).
+#         This is the right choice for an itch.io install, which has no Proton.
+# native  Windows, running the exe directly. Default when running under MSYS2 or Git Bash.
+RUNNER=""
+
+# Path to the proton launcher script, when RUNNER=proton.
+#   <library>/steamapps/common/Proton <version>/proton
+PROTON=""
+
+# Steam client install directory, when RUNNER=proton. Proton needs this to find its runtime.
+#   commonly ~/.local/share/Steam or ~/.steam/steam
+STEAM_CLIENT=""
+
+# Wine binary, when RUNNER=wine. Leave empty to use "wine" from PATH.
+WINE=""
+
+# --- optional ---------------------------------------------------------------------------
+# Steam app manifest, used only to record the buildid in test results. Steam installs only;
+# itch.io and direct installs are identified by a hash of Atomcraft.dll instead.
+#   <library>/steamapps/appmanifest_2803490.acf
+APPMANIFEST=""
+
+# Where the harness keeps its patched install copy, throwaway prefix and artifacts.
+# Defaults to $XDG_CACHE_HOME/atomcraft-test (usually ~/.cache/atomcraft-test).
+TEST_ROOT=""
+
+# Pinned mod loader zip. Leave empty to search $LOADER_ZIP, ./vendor/ and ~/Downloads.
+LOADER_ZIP=""
