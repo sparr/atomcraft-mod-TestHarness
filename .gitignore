@@ -1,0 +1,10 @@
+# Build output and staging
+build/
+obj/
+bin/
+
+# Vendored mod loader zip: pinned by checksum in bootstrap.sh, not redistributed here
+vendor/
+
+# Local configuration, machine specific
+atomcraft-test.conf
