@@ -287,6 +287,43 @@ public sealed class Region
     }
 
     /// <summary>
+    /// Pushes the pixel at (fromX, fromY) toward (toX, toY) exactly as a conveyor does, and
+    /// returns whether it moved.
+    ///
+    /// This is the only practical way to fire a material's OnImpact. Falling does not call it:
+    /// the game's own explosive-on-landing material, Nitroglycerin, hand-rolls a check inside
+    /// its StepLiquid rather than relying on OnImpact, and the only callers in the shipped
+    /// assembly are ConveyorMaterial.TryConvey and the four Rubber materials.
+    ///
+    /// The semantics are the conveyor's, so they are worth stating plainly. OnImpact fires on
+    /// the material occupying the TARGET cell, is passed the source coordinates first, and
+    /// happens only when the target is occupied. A move into air returns true and fires
+    /// nothing.
+    ///
+    /// The return value describes the conveyor, not the outcome. It is false whenever the
+    /// target was occupied, including when the impact handler then moved pixels itself:
+    /// conveying water into an Allow Liquids filter returns false and still passes the water
+    /// through to the far side. So assert on the field, never on this bool.
+    ///
+    /// One thing a region test cannot do this way is detonate something. Igniting a material
+    /// whose Ignition.Explodes is set reads Avatars.LocalAvatar.PlayerId, which is null
+    /// without a session, so it throws a NullReferenceException from inside the game.
+    /// </summary>
+    public bool ConveyInto(int fromX, int fromY, int toX, int toY)
+    {
+        Bounds(fromX, fromY);
+        Bounds(toX, toY);
+
+        // ignoreUpdatedFlag because a test-driven convey is not part of a tick's scan, so
+        // the per-tick flag carries no meaning here and a stale one from whatever ran last
+        // would silently turn this into a no-op.
+        return ConveyorMaterial.TryConvey(
+            OriginX + fromX, OriginY + fromY,
+            OriginX + toX, OriginY + toY,
+            _state.Field, Tick, ignoreUpdatedFlag: true);
+    }
+
+    /// <summary>
     /// Clears a cell to air. SetRaw(x, y, -1) does the same thing but reads like a raw-id
     /// escape hatch rather than the ordinary act of punching a hole in a painted layout.
     /// </summary>

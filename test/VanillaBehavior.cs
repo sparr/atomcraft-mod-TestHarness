@@ -259,4 +259,65 @@ public static class VanillaBehavior
         if (r.HeatAt(4, 4) != iron)
             throw new AssertionException($"spawn did not honour the placement temperature");
     }
+
+    /// <summary>
+    /// ConveyInto fires the target's OnImpact, and the handler can move pixels even though
+    /// TryConvey reports that nothing moved.
+    ///
+    /// Allow Liquids is the subject because its OnImpact discriminates: a liquid conveyed into
+    /// it is passed through to the far side, a solid is refused. Measured, not assumed. Note
+    /// the return is false in both cases, because the conveyor itself never moved the source
+    /// pixel; the filter did.
+    ///
+    /// Nitroglycerin would be the obvious subject and is unusable here: igniting anything that
+    /// explodes reads Avatars.LocalAvatar.PlayerId, which is null without a session, so every
+    /// explosion path throws in a region test.
+    /// </summary>
+    [GameTest(Wall = "Granite")]
+    public static void ConveyingALiquidIntoAllowLiquidsPassesItThrough(Region r)
+    {
+        r.Set(10, 10, "Allow Liquids");
+        r.Set(9, 10, "Water");
+
+        if (r.ConveyInto(9, 10, 10, 10))
+            throw new AssertionException(
+                "conveying into an occupied cell should report that the conveyor moved nothing");
+
+        r.AssertAt(11, 10, "Water");      // through the filter
+        r.AssertAt(9, 10, null);
+        r.AssertAt(10, 10, "Allow Liquids");
+    }
+
+    /// <summary>
+    /// The same impact, refused. Without this the test above would pass on any handler that
+    /// moved everything, which would not be a filter at all.
+    /// </summary>
+    [GameTest(Wall = "Granite")]
+    public static void ConveyingASolidIntoAllowLiquidsIsRefused(Region r)
+    {
+        r.Set(10, 10, "Allow Liquids");
+        r.Set(9, 10, "Sand");
+
+        r.ConveyInto(9, 10, 10, 10);
+
+        r.AssertAt(9, 10, "Sand");        // stayed put
+        r.AssertAt(11, 10, null);
+    }
+
+    /// <summary>
+    /// The other half of the contract: conveying into air moves the pixel and fires no impact.
+    /// Without this, ConveyInto could be doing nothing at all and the test above would still
+    /// pass on the strength of the sand never moving.
+    /// </summary>
+    [GameTest(Wall = "Granite")]
+    public static void ConveyingIntoAirMovesThePixel(Region r)
+    {
+        r.Set(9, 10, "Sand");
+
+        if (!r.ConveyInto(9, 10, 10, 10))
+            throw new AssertionException($"conveying into air should move the pixel\n{r.Dump()}");
+
+        r.AssertAt(10, 10, "Sand");
+        r.AssertAt(9, 10, null);
+    }
 }
