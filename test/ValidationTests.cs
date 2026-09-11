@@ -124,6 +124,85 @@ public static class ValidationTests
     }
 
     /// <summary>
+    /// A craftable that is in no category exists, is craftable in principle, and cannot be
+    /// found in the UI, because Craftables.Add and adding the id to a category are separate
+    /// steps and nothing complains when only the first is done.
+    ///
+    /// This is the one rule that cannot be proved with a data-only fixture: it needs a
+    /// registered craftable, which only code can create. Craftables.Add appends to a private
+    /// list, so the test adds one, checks the rule, then takes it back out.
+    ///
+    /// The second half matters as much as the first. Putting the id in a category has to make
+    /// the finding go away, or the rule is just "is craftable" wearing a category's name.
+    /// </summary>
+    [GameTest]
+    public static void CraftableInNoCategoryIsCaughtAndCategorizingItClears()
+    {
+        // Vanilla, static, in no reaction, and not craftable, so nothing else accounts for
+        // what this test sees.
+        const string subject = "Barite Deposit";
+        var id = Atomcraft.Materials.GetBaseMaterialId(subject);
+
+        if (id == -1)
+            throw new AssertionException($"'{subject}' is not registered; pick another subject");
+        if (IsCraftable(id))
+            throw new AssertionException(
+                $"'{subject}' is already craftable, so this test would not be measuring its own " +
+                "craftable. Pick a subject the game does not ship a recipe for.");
+
+        var json = $$"""
+            [{ "Name": "{{subject}}" }]
+            """;
+
+        Atomcraft.Craftables.Add(subject, new Dictionary<string, int> { ["Water"] = 1 }, null!);
+        var category = Atomcraft.Craftables.GetCategory(0);
+
+        try
+        {
+            Expect(Inspect(materials: json), Rule.CraftableNotInAnyCategory, Severity.Error, "category");
+
+            category.MaterialTypeIds.Add(id);
+
+            if (Inspect(materials: json).Any(f => f.Rule == Rule.CraftableNotInAnyCategory))
+                throw new AssertionException(
+                    "the finding survived putting the material in a category, so the rule is not " +
+                    "actually checking category membership");
+        }
+        finally
+        {
+            category.MaterialTypeIds.Remove(id);
+            RemoveCraftable(id);
+        }
+    }
+
+    private static System.Collections.IList CraftableList() =>
+        (System.Collections.IList)typeof(Atomcraft.Craftables)
+            .GetField("CraftableList", System.Reflection.BindingFlags.NonPublic
+                                       | System.Reflection.BindingFlags.Static)!
+            .GetValue(null)!;
+
+    private static bool IsCraftable(short id)
+    {
+        foreach (var craftable in CraftableList())
+            if (MaterialTypeIdOf(craftable) == id) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Craftables offers no removal, and leaving a test's craftable behind would change what
+    /// every later test sees, so this reaches into the list the same way the rule does.
+    /// </summary>
+    private static void RemoveCraftable(short id)
+    {
+        var list = CraftableList();
+        for (var i = list.Count - 1; i >= 0; i--)
+            if (MaterialTypeIdOf(list[i]!) == id) list.RemoveAt(i);
+    }
+
+    private static short MaterialTypeIdOf(object craftable) =>
+        (short)craftable.GetType().GetField("MaterialTypeId")!.GetValue(craftable)!;
+
+    /// <summary>
     /// A clean mod produces nothing. Without this, every test above would still pass if the
     /// rules simply fired on everything.
     /// </summary>

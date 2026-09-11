@@ -1,4 +1,3 @@
-using Godot;
 using Atomcraft;
 
 namespace Atomcraft.TestHarness;
@@ -39,14 +38,12 @@ public static class Diagnostics
     /// different material than it asked for, silently.
     /// </summary>
     /// <summary>
-    /// Validates every installed mod, plus any zip parked in a sibling "uninstalled"
-    /// directory. Reports at every level including lint, since a survey is exactly the place
-    /// to see the findings a normal check would suppress.
+    /// Validates every installed mod. Reports at every level including lint, since a survey is
+    /// exactly the place to see the findings a normal check would suppress.
     ///
-    /// Reads each mod's zip rather than the live registries, so a mod that fails to load, or
-    /// that kills the game at load, is still inspected. That is the case where this is worth
-    /// the most: a mod whose manifest points at data its build never produced loads silently
-    /// empty, and the first symptom is a null dereference three layers away in Materials.Init.
+    /// Reads each mod's zip rather than the live registries, which is why this still works for
+    /// a mod that loaded badly. A mod that cannot be installed at all, because it kills the
+    /// game at load, can be inspected with Validation.InspectZip against its path directly.
     /// </summary>
     public static void ValidateInstalledMods()
     {
@@ -56,16 +53,6 @@ public static class Diagnostics
         {
             if (id is "0Harmony" or "GodotMonoModLoader") continue;
             Report(id, () => Validation.Inspect(id));
-        }
-
-        var parked = OS.GetExecutablePath().GetBaseDir().GetBaseDir().PathJoin("uninstalled");
-        using var dir = DirAccess.Open(parked);
-        if (dir == null) return;
-
-        foreach (var file in dir.GetFiles())
-        {
-            if (!file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
-            Report($"{file} (not installed)", () => Validation.InspectZip(parked.PathJoin(file)));
         }
     }
 
