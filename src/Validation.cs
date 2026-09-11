@@ -33,6 +33,9 @@ public enum Rule
 
     /// <summary>A manifest names a data path that matches nothing in the zip.</summary>
     EmptyDataPath,
+
+    /// <summary>A registered channel does not do what its registration says.</summary>
+    ChannelContract,
 }
 
 /// <summary>

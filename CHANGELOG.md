@@ -30,8 +30,24 @@ registration rather than at compile time.
   freshly generated world would otherwise inherit the previous world's state.
 - `FieldRegistry` gains the `Unregister` the other two registries always had.
 
+### Fixed
+
+- **A passing run could report as a harness crash.** `run-tests.sh` extracted results by
+  grepping `godot.log` without `-a`. The game writes bytes that make GNU grep classify that
+  log as binary, and a binary-mode grep writes nothing into a redirect while still exiting 0,
+  so `results.jsonl` came out empty and the missing `run_end` was read as the harness dying. A
+  run that passed 108 tests reported exit 70. Every grep of the log now passes `-a`.
+
 ### Added
 
+- **An artifacts directory.** `Artifacts.Write`, `WriteBytes`, and `Path` give a test one
+  blessed place for output, filed under the running test. Emptied at the start of every run,
+  announced per file in the results stream, and copied to `$TEST_ROOT/out/artifacts` beside
+  the log and the records.
+- **`ChannelContract.Check(region)`**, which exercises a registered channel rather than
+  reading its declaration: write a probe, read it back, clear the rectangle, then clear the
+  world. Asked for by the Pressure mod, and it is the check that would have caught
+  `ClearEverything` being a silent no-op. Scoped to the caller's own channels by default.
 - **Validation**, nine generic rules for mistakes that produce no error at load and no crash.
   `Validation.Check(modId)` fails on errors, logs warnings, and stays silent about lint
   unless asked. Found the cause of a boot crash in another mod on first use.

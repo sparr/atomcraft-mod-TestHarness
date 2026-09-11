@@ -206,6 +206,7 @@ public sealed class FieldSpec<T> : IFieldSpec
 public static class FieldRegistry
 {
     private static readonly Dictionary<string, IFieldSpec> Specs = new();
+    private static readonly Dictionary<string, string> Owners = new();
     private static readonly object Lock = new();
     private static bool _vanillaRegistered;
 
@@ -220,13 +221,31 @@ public static class FieldRegistry
                 "it between tests. Give it a Clear, or put it in a FieldGroup with the other " +
                 "channels that share its storage.");
 
+        // Only one of them can be the truth, and the harness picks the group: ClearAll clears
+        // each group once and skips its members, so a Clear supplied alongside a Group is
+        // never called. Silently ignoring it would leave a registration that reads as though
+        // the channel clears itself.
+        if (spec is { Group: not null } && !spec.ClearsNothing())
+            throw new AssertionException(
+                $"field '{spec.Name}' supplies both Clear and Group. Clearing goes through the " +
+                "group, so the Clear would never be called. Drop one: keep Clear if the channel " +
+                "owns its storage, keep Group if it is a view of storage something else owns.");
+
+        // Recorded so a mod can check its own channels without being failed by another
+        // mod's. The stack walk is the same one RequireVersion uses.
+        var owner = new System.Diagnostics.StackTrace().GetFrames()
+            ?.Select(f => f.GetMethod()?.DeclaringType?.Assembly)
+            .FirstOrDefault(a => a != null && a != typeof(FieldRegistry).Assembly)
+            ?.GetName().Name;
+
         lock (Lock)
         {
             if (Specs.ContainsKey(spec.Name))
                 throw new AssertionException($"field '{spec.Name}' is already registered");
             Specs[spec.Name] = spec;
+            Owners[spec.Name] = owner ?? typeof(FieldRegistry).Assembly.GetName().Name!;
         }
-        Log.Info($"registered field '{spec.Name}'");
+        Log.Info($"registered field '{spec.Name}' (owner: {owner ?? "harness"})");
     }
 
     /// <summary>
@@ -239,7 +258,17 @@ public static class FieldRegistry
     /// </summary>
     public static bool Unregister(string name)
     {
-        lock (Lock) return Specs.Remove(name);
+        lock (Lock)
+        {
+            Owners.Remove(name);
+            return Specs.Remove(name);
+        }
+    }
+
+    /// <summary>The assembly that registered a channel, for checks scoped to one mod.</summary>
+    public static string? OwnerOf(string name)
+    {
+        lock (Lock) return Owners.TryGetValue(name, out var owner) ? owner : null;
     }
 
     public static IFieldSpec Get(string name)
