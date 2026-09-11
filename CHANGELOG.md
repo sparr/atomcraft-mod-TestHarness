@@ -8,76 +8,88 @@ instead of surfacing later as a `MissingMethodException`.
 ## Unreleased
 
 Driven by a second round of the Pressure mod's needs document, and by testing the harness
-against the other mods in the AtomcraftMods repository.
+against the other mods in the AtomcraftMods repository. Several entries below are bugs in the
+harness that made a test report success without testing anything; those are the ones worth
+reading first.
 
-**Breaking:** `Severity` gains a `Lint` member, and `FieldSpec<T>.Clear` is no longer a
-required property, so a channel that supplies neither `Clear` nor `Group` is now refused at
-registration rather than at compile time.
-
-### Fixed
-
-- **A save and reload never reloaded.** `FileManager` caches the universe it last loaded and
-  returns it whenever the world name matches, so re-entering the same world in one process
-  handed back the object already in memory, never read the save file, and never ran the mod
-  loader's `OnUniverseLoad`. Every assertion about persistence passed on state that had not
-  left memory: a full run showed 22 saves and 0 loads. `Session.SaveAndReload` now clears
-  that cache and fails if the re-entry did not actually read a file.
-- **`FieldSpec<T>` could not supply `ClearEverything`.** The interface declared it; the class
-  every mod registers through exposed no way to provide it, so the world-scoped reset was a
-  silent no-op for such a channel. New `ClearWorld` property.
-- **Registered state now resets when a world ends**, via `Simulation.Reset`. `OnUniverseLoad`
-  is not a substitute: it runs only when a universe file is actually read, so starting a
-  freshly generated world would otherwise inherit the previous world's state.
-- `FieldRegistry` gains the `Unregister` the other two registries always had.
+**Breaking:** `Severity` gains a `Lint` member. `FieldSpec<T>.Clear` is no longer a required
+property, so a channel supplying neither `Clear` nor `Group` is refused at registration rather
+than at compile time, and one supplying both is refused as well. `--atomtest-filter` is now a
+regular expression rather than a substring, which is a superset in practice since matching is
+unanchored.
 
 ### Fixed
 
+- **A save and reload never reloaded, for anyone.** `FileManager` caches the universe it last
+  loaded and returns it whenever the world name matches, so re-entering the same world in one
+  process handed back the object already in memory, never read the save file, and never ran the
+  mod loader's `OnUniverseLoad`. Every assertion about persistence passed on state that had not
+  left memory: a full run showed 22 saves and 0 loads. `Session.SaveAndReload` now clears the
+  cache and fails if the re-entry did not read a file.
+- **`Persistence.AssertFieldIsReplacedOnLoad` had the same defect**, open-coding its own leave
+  and re-entry. For a mod that clears state when a world ends it reported a false *failure*
+  reading as a broken save hook. The reload half is now `Session.Reload()`, so one place knows
+  about the cache.
 - **A run that selected no tests reported success.** A filter matching nothing ran zero tests
-  and exited 0, which is indistinguishable from everything passing. Selecting no tests, or a
-  filter that will not compile, now fails the run with a message naming the filter and the
-  matching rule. Reported by the Pressure mod.
-
-- **`--atomtest-exclude`**, the same kind of pattern as the filter, applied after it and
-  winning over it for a test both match. Expressing "this class except that test" with the
-  filter alone needs a negative lookahead.
+  and exited 0, which is indistinguishable from everything passing. Selecting nothing now fails
+  the run, naming the filter, the exclude, or the empty discovery as the cause.
+- **A passing run could report as a harness crash.** `run-tests.sh` extracted results by
+  grepping `godot.log` without `-a`. The game writes bytes that make GNU grep classify the log
+  as binary, and a binary-mode grep writes nothing into a redirect while still exiting 0, so
+  `results.jsonl` came out empty and the missing `run_end` was read as the harness dying. A run
+  that passed 108 tests reported exit 70.
+- **A mod refused for a version mismatch still had its tests run.** The loader loads a mod's
+  assembly before calling `Initialize`, and discovery scans loaded assemblies, so a refused
+  mod's tests executed against a harness its `Initialize` never registered anything with. They
+  are now failed, not skipped: a skip leaves the run green.
+- **`FieldSpec<T>` could not supply `ClearEverything`.** The interface declared it; the class
+  every mod registers through exposed no delegate for it, so the world-scoped reset was a
+  silent no-op for every channel registered that way. New `ClearWorld` property.
+- **`build-mod.sh` published the harness assembly only when the project was named exactly
+  `src/TestHarness.csproj`.** Any other spelling installed a new harness while leaving
+  consumers compiling against the old assembly. `TestRoot` is now passed unconditionally.
+- **Registered state now resets when a world ends**, via `Simulation.Reset`. `OnUniverseLoad`
+  is not a substitute: it runs only when a universe file is actually read, so starting a freshly
+  generated world would otherwise inherit the previous world's state.
+- `FieldRegistry` gains the `Unregister` the other two registries always had.
 
 ### Changed
 
-- **`--atomtest-filter` is a regular expression**, case-insensitive and unanchored, rather
-  than a substring. Unanchored makes it a superset: a plain word selects every name containing
-  it exactly as before, so existing filters are unaffected, while `Session|Artifact` now does
-  what it looks like it does.
-- **A passing run could report as a harness crash.** `run-tests.sh` extracted results by
-  grepping `godot.log` without `-a`. The game writes bytes that make GNU grep classify that
-  log as binary, and a binary-mode grep writes nothing into a redirect while still exiting 0,
-  so `results.jsonl` came out empty and the missing `run_end` was read as the harness dying. A
-  run that passed 108 tests reported exit 70. Every grep of the log now passes `-a`.
+- **`--atomtest-filter` is a case-insensitive, unanchored regular expression** over the full
+  test name. Unanchored makes it a superset of the substring matching it replaces: a plain word
+  still selects every name containing it.
+- **The version constant carries the next version between releases**, so a mod pinned to the
+  last release is refused at load rather than failing later with a missing method. `main`
+  reports `0.3.0-dev`.
 
 ### Added
 
+- **Validation**, nine generic rules for mistakes that produce no error at load and no crash:
+  dangling material names in material fields and reactions, a manifest data path matching
+  nothing in the zip, an unregistered `ColorDelegate`, a missing translation, a craftable in no
+  category, and two fields that are unusable because of game bugs. Errors fail, warnings log,
+  lint is silent unless asked for. Found the cause of a boot crash in another mod on first use.
+- **`ChannelContract.Check(region)`**, which exercises a registered channel rather than reading
+  its declaration: write a probe, read it back, clear the rectangle, then clear the world.
+  Scoped to the caller's own channels. This is the check that would have caught the
+  `ClearEverything` gap above.
+- **`StateRegistry`**, for mod state that no rectangle describes: a config flag, an inventory, a
+  running total. `ResetModState` covers it, and it can opt into determinism comparisons.
 - **An artifacts directory.** `Artifacts.Write`, `WriteBytes`, and `Path` give a test one
-  blessed place for output, filed under the running test. Emptied at the start of every run,
-  announced per file in the results stream, and copied to `$TEST_ROOT/out/artifacts` beside
-  the log and the records.
-- **`ChannelContract.Check(region)`**, which exercises a registered channel rather than
-  reading its declaration: write a probe, read it back, clear the rectangle, then clear the
-  world. Asked for by the Pressure mod, and it is the check that would have caught
-  `ClearEverything` being a silent no-op. Scoped to the caller's own channels by default.
-- **Validation**, nine generic rules for mistakes that produce no error at load and no crash.
-  `Validation.Check(modId)` fails on errors, logs warnings, and stays silent about lint
-  unless asked. Found the cause of a boot crash in another mod on first use.
-- **`StateRegistry`**, for mod state that no rectangle describes: a config flag, an inventory,
-  a running total. `ResetModState` covers it, and it can opt into determinism comparisons.
+  blessed place for output, filed under the running test, emptied when a run begins, announced
+  per file in the results, and copied to `$TEST_ROOT/out/artifacts`.
+- **`FieldGroup`**, so channels that are views of one store clear once rather than once each,
+  and a read-only view no longer nominates a `Clear` for storage it does not own.
+- **`FieldSpec<T>.Checksum`**, an optional bulk hook so a flat-array mod is not charged a
+  per-cell delegate call per channel for determinism.
 - **`TickSpec.When`**, choosing whether a per-tick pass runs before or after the quadrant
   passes. Before is where `FlagActiveChunks` sits in the real game, which is how a mod's own
   movement takes precedence over gravity.
-- **`FieldGroup`**, so channels that are views of one store clear once rather than once each,
-  and a read-only view no longer has to nominate a `Clear` for storage it does not own.
-- **`FieldSpec<T>.Checksum`**, an optional bulk hook so a flat-array mod is not charged a
-  per-cell delegate call per channel for determinism.
+- **`--atomtest-exclude`**, the same kind of pattern as the filter, applied after it and winning
+  over it for a test both match.
 - `Region.ConveyInto`, the only way to reach a material's `OnImpact`.
-- `Session.Enter(..., worldName:)` and `Session.UniverseLoads`, for tests that switch worlds
-  or need to prove a load happened.
+- `Session.Reload`, `Session.UniverseLoads`, and `Session.Enter(..., worldName:)`, for tests
+  that switch worlds or need to prove a load happened.
 
 ## 0.2.1
 

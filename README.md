@@ -486,6 +486,25 @@ works on a mod that fails to load, or that kills the game at load, which is when
 the most. Nothing vanilla is ever inspected: the game violates several of these rules itself
 and a report you can do nothing about is a report nobody reads.
 
+### Does your channel do what it says?
+
+`Validation` reads declarations; this exercises them. For every registered channel that can be
+written it writes a probe, reads it back, clears the rectangle, and clears the world, checking
+each step actually took effect.
+
+```csharp
+[GameTest]
+public static void ChannelsHonorTheirContract(Region r) => ChannelContract.Check(r);
+```
+
+It needs a `Region` because it writes, and the cells it touches must belong to the running
+test. It checks the caller's own channels by default, so one mod is not failed by another's;
+`ChannelContract.InspectAll(r)` surveys everything.
+
+Declaring a world-wide clear that does not clear is an error. Declaring none at all is a
+warning, since that is a legitimate choice for storage something else replaces, as the game's
+own `core.material` is.
+
 ## Diagnostics
 
 `./run-tests.sh -- --atomtest-diagnose` reports facts about the running game rather than
