@@ -28,8 +28,24 @@ mkdir -p "$SCRATCH"
 
 ARGS=(-p:GameInstallDir="$GAME_DIR" -p:AppData="$SCRATCH")
 [ "$INSTALL_IT" = 1 ] && ARGS+=(-p:TestInstallDir="$INSTALL")
-# Consumers of the harness resolve it here; see the harness README.
-ARGS+=(-p:TestHarnessDir="$TEST_ROOT/harness")
+
+# Where a test mod finds the harness assembly. Building the harness from source exports it
+# to $TEST_ROOT/harness, but a consumer installs a release instead and has nothing there, so
+# TEST_HARNESS_DIR from the config or environment wins.
+: "${TEST_HARNESS_DIR:=$TEST_ROOT/harness}"
+if [ ! -f "$TEST_HARNESS_DIR/Atomcraft.TestHarness.dll" ]; then
+  die "no Atomcraft.TestHarness.dll under $TEST_HARNESS_DIR.
+
+  Building a test mod needs the harness assembly. Either:
+    - extract a release and set TEST_HARNESS_DIR to the TestHarness folder inside it
+        unzip TestHarness.zip -d /somewhere
+        TEST_HARNESS_DIR=/somewhere/TestHarness ./build-mod.sh $PROJECT
+      or put that line in atomcraft-test.conf
+    - or build the harness from this checkout first, which exports it to
+      $TEST_ROOT/harness:
+        ./run-tests.sh"
+fi
+ARGS+=(-p:TestHarnessDir="$TEST_HARNESS_DIR")
 
 # Building in three escalating steps, because a restore against the default package source
 # can stall for minutes on some machines even when the network is otherwise fine.
