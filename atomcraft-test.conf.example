@@ -45,3 +45,9 @@ TEST_ROOT=""
 
 # Pinned mod loader zip. Leave empty to search $LOADER_ZIP, ./vendor/ and ~/Downloads.
 LOADER_ZIP=""
+
+# Where build-mod.sh finds Atomcraft.TestHarness.dll when building a test mod.
+# Leave empty when working from a checkout of the harness: building it exports the assembly
+# to $TEST_ROOT/harness. Set this when you installed a release instead, to the TestHarness
+# folder inside the extracted zip.
+TEST_HARNESS_DIR=""

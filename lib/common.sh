@@ -22,6 +22,7 @@ load_config() {
     # Environment wins: snapshot, source, restore anything that was already set.
     local _g="${GAME_DIR:-}" _r="${RUNNER:-}" _p="${PROTON:-}" _w="${WINE:-}"
     local _s="${STEAM_CLIENT:-}" _a="${APPMANIFEST:-}" _t="${TEST_ROOT:-}"
+    local _h="${TEST_HARNESS_DIR:-}"
     # shellcheck disable=SC1090
     . "$candidate"
     [ -n "$_g" ] && GAME_DIR="$_g"
@@ -31,6 +32,7 @@ load_config() {
     [ -n "$_s" ] && STEAM_CLIENT="$_s"
     [ -n "$_a" ] && APPMANIFEST="$_a"
     [ -n "$_t" ] && TEST_ROOT="$_t"
+    [ -n "$_h" ] && TEST_HARNESS_DIR="$_h"
     CONFIG_FILE="$candidate"
     break
   done
