@@ -25,6 +25,8 @@ public static class Session
     /// The session start is asynchronous inside the game: it awaits process frames while
     /// loading the planet, so a test must give it frames rather than calling and asserting.
     /// </summary>
+    public static IEnumerator Enter(bool fresh) => Enter("flat", WorldMode.Creative, fresh);
+
     public static IEnumerator Enter(string fixture = "flat", WorldMode mode = WorldMode.Creative,
         bool fresh = true)
     {

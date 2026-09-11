@@ -68,6 +68,77 @@ public static class Persistence
                 "persisted as a raw material id.");
     }
 
+    /// <summary>
+    /// Loading a world replaces a channel rather than layering onto whatever was there.
+    ///
+    /// The half AssertFieldSurvivesSaveLoad cannot see. A load hook that restores saved
+    /// state on top of existing state passes every round trip, because the state it should
+    /// have cleared happens to be the state it is restoring. The bug only appears when a
+    /// player leaves one world and loads another, and finds the first world's data sitting
+    /// at the same coordinates.
+    ///
+    /// Writes into <paramref name="savedRect"/>, saves, writes into
+    /// <paramref name="unsavedRect"/> afterwards, reloads, and asserts the first survived
+    /// and the second is gone.
+    /// </summary>
+    public static IEnumerator AssertFieldIsReplacedOnLoad<T>(string fieldName,
+        (int X, int Y, int Width, int Height) savedRect,
+        (int X, int Y, int Width, int Height) unsavedRect,
+        T marker)
+    {
+        if (!Session.Active)
+            throw new AssertionException(
+                $"AssertFieldIsReplacedOnLoad('{fieldName}') needs a session; yield Session.Enter first");
+
+        var spec = FieldRegistry.Get<T>(fieldName);
+        if (EqualityComparer<T>.Default.Equals(marker, spec.Unset))
+            throw new AssertionException(
+                $"the marker for '{fieldName}' is its unset value, so this would pass without " +
+                "writing anything distinguishable");
+
+        var saved = Capture(spec, savedRect.X, savedRect.Y, savedRect.Width, savedRect.Height);
+        if (saved.Values.All(v => EqualityComparer<T>.Default.Equals(v, spec.Unset)))
+            throw new AssertionException(
+                $"nothing is set in the saved rectangle of '{fieldName}'. Write the state that " +
+                "should survive before asserting a reload replaces the rest.");
+
+        Session.Save();
+
+        // Written after the save, so a correct load has no record of it and must drop it.
+        for (var dy = 0; dy < unsavedRect.Height; dy++)
+        for (var dx = 0; dx < unsavedRect.Width; dx++)
+            spec.Put(unsavedRect.X + dx, unsavedRect.Y + dy, marker);
+
+        yield return Session.Leave();
+        yield return Session.Enter(fresh: false);
+
+        var survived = Capture(spec, savedRect.X, savedRect.Y, savedRect.Width, savedRect.Height);
+        var lost = saved.Count(kv => !EqualityComparer<T>.Default.Equals(kv.Value, survived[kv.Key]));
+
+        var lingering = 0;
+        for (var dy = 0; dy < unsavedRect.Height; dy++)
+        for (var dx = 0; dx < unsavedRect.Width; dx++)
+            if (EqualityComparer<T>.Default.Equals(spec.At(unsavedRect.X + dx, unsavedRect.Y + dy), marker))
+                lingering++;
+
+        Log.Event("persistence", new()
+        {
+            ["field"] = fieldName,
+            ["check"] = "replaced_on_load",
+            ["lost"] = lost,
+            ["lingering"] = lingering,
+        });
+
+        if (lost > 0)
+            throw new AssertionException(
+                $"'{fieldName}' lost {lost} saved cell(s) across the reload");
+        if (lingering > 0)
+            throw new AssertionException(
+                $"'{fieldName}' still holds {lingering} cell(s) written after the save. The load " +
+                "hook is restoring on top of existing state rather than replacing it, which no " +
+                "save round trip can catch and which shows up when a player switches worlds.");
+    }
+
     private static Dictionary<(int X, int Y), T> Capture<T>(FieldSpec<T> spec,
         int x, int y, int width, int height)
     {

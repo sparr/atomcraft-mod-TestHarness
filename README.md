@@ -261,13 +261,39 @@ FieldRegistry.Register(new FieldSpec<int>
 var pressure = r.Field<int>("mymod.pressure");
 pressure[3, 4] = 120;
 pressure.AssertUniform(0);
+pressure.AssertNoneSet();
 pressure.CountSet();
 ```
+
+Implement `ClearEverything()` on a spec if the channel keeps anything outside the region a
+test is handed, such as a running total or a dirty list; it is called between tests and
+defaults to a no-op. `ChecksumRect` has a working default and exists so mod channels take
+part in `--determinism`, which is where order-dependence in a mod's own parallel work would
+otherwise be invisible.
 
 The game's own `core.material`, `core.heat`, and `core.charge` register through the same
 call, so there is no privileged path. (`core.charge` is registered for completeness but the
 game never touches it: power is a single global float, and circuit signals are encoded in
 the material id, so a material checksum already captures all circuit state.)
+
+### Your own per-tick pass
+
+`Region.Ticks` drives the game's quadrant passes directly, so it never reaches
+`Simulation.Step` and a mod whose per-tick work hangs off a `Step` postfix is not driven by
+any region test. Register it and it is:
+
+```csharp
+TickRegistry.Register(new TickSpec
+{
+    Name = "mymod.pressure",
+    Step = (window, tick) => MyPass.Run(Simulation.CurrentState.Field, tick, window),
+});
+```
+
+The window is the region's own rectangle, and honouring it matters: a pass that works
+world-wide inside a bounded test pushes cells into the spacing margin, where the next test
+to use that band finds them. Session tests need none of this, since `WorldTicks` drives the
+game's own `DoSimTick`.
 
 ### Does your state survive a save?
 
@@ -295,6 +321,11 @@ It refuses a rectangle with nothing in it, because a test asserting that empty s
 survives passes whether or not persistence works at all. It also catches the unstable-id
 hazard for free: modded material ids are assigned by load order, so anything persisted as a
 raw id comes back as a different material once the installed mod set changes.
+
+`Persistence.AssertFieldIsReplacedOnLoad` covers the other half: a load hook that restores
+saved state *on top of* what was already there passes every round trip, and only breaks when
+a player leaves one world for another and finds the first world's data still sitting at the
+same coordinates.
 
 `TestHarness.Test`, the harness's own test mod, persists an example channel the same way, if
 you want a worked example of the save hooks. It is also built exactly as a consumer builds

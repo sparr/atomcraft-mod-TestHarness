@@ -244,6 +244,10 @@ public static class TestExecutor
             }
         }
 
+        // Hand the band space back. A region is cleared when it is handed out, so holding
+        // the cursor past the end of a test only shrinks how many tests a run can hold.
+        Region.ReleaseAll();
+
         if (test.Status == "passed") _passed++; else _failed++;
 
         Log.Event("test", new()
@@ -298,6 +302,11 @@ public static class TestExecutor
         RNG.SetNonDeterministicSeed(12345);
         if (Simulation.CurrentState != null)
             Simulation.CurrentState.Tick = test.Attr.StartTick;
+
+        // Channels can hold state outside the region a test is handed, and a world-level
+        // aggregate would otherwise carry between tests silently.
+        if (test.Attr.ResetModState)
+            FieldRegistry.ResetAll();
 
         // World mode is global state, so it is set per test rather than once per run.
         if (Game.SaveData_World is SaveData_World world)

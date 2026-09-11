@@ -25,6 +25,37 @@ public interface IFieldSpec
     /// inherits test N's state.
     /// </summary>
     void ClearRect(int worldX, int worldY, int width, int height);
+
+    /// <summary>
+    /// Reset everything this channel holds, anywhere in the world, and any world-level
+    /// aggregate that goes with it: a total, a dirty list, an index.
+    ///
+    /// ClearRect only reaches the region a test was handed, so state left outside it
+    /// survives into the next test. That is harmless for a channel whose only consumer
+    /// filters by the region, and silent for a channel with a running total. Defaults to a
+    /// no-op so existing registrations are unaffected.
+    /// </summary>
+    void ClearEverything() { }
+
+    /// <summary>
+    /// A checksum over a rectangle of this channel, for determinism comparisons.
+    ///
+    /// The game's own chunk checksum covers material and heat, so a mod's per-cell state is
+    /// invisible to it. That state is the likeliest place for order-dependence to hide: the
+    /// material map is written under a partitioning the engine designed, while a mod's
+    /// parallel structure has none of those guard rails.
+    ///
+    /// The default renders each cell, which works for any channel. A channel backed by a
+    /// flat array can supply something faster.
+    /// </summary>
+    int ChecksumRect(int worldX, int worldY, int width, int height)
+    {
+        var sum = 0;
+        for (var y = worldY; y < worldY + height; y++)
+        for (var x = worldX; x < worldX + width; x++)
+            sum = sum * 257 + (IsUnsetAt(x, y) ? 0 : FormatAt(x, y).GetHashCode());
+        return sum;
+    }
 }
 
 /// <summary>A registered channel of <typeparamref name="T"/> per cell.</summary>
@@ -118,6 +149,25 @@ public static class FieldRegistry
     {
         foreach (var spec in All)
             spec.ClearRect(worldX, worldY, width, height);
+    }
+
+    /// <summary>
+    /// One checksum per registered channel over a rectangle, for determinism comparisons.
+    /// Keyed by channel name so a difference names the channel that moved.
+    /// </summary>
+    public static Dictionary<string, int> ChecksumAll(int worldX, int worldY, int width, int height)
+    {
+        var sums = new Dictionary<string, int>();
+        foreach (var spec in All)
+            sums[spec.Name] = spec.ChecksumRect(worldX, worldY, width, height);
+        return sums;
+    }
+
+    /// <summary>Resets every registered channel completely. Called between tests.</summary>
+    public static void ResetAll()
+    {
+        foreach (var spec in All)
+            spec.ClearEverything();
     }
 
     /// <summary>Registers the game's own three per-cell channels through the public path.</summary>

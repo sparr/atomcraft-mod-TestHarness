@@ -150,4 +150,42 @@ public static class Determinism
                 $"{differing.Count} of {first.Count} chunks differ\n  " +
                 string.Join("\n  ", differing.Take(5)));
     }
+
+    /// <summary>
+    /// Every registered channel, the game's and any mod's, is identical after stepping the
+    /// same scene twice.
+    ///
+    /// The game's chunk checksum covers material and heat only, so it cannot see a mod's own
+    /// per-cell state, which is where order-dependence is likeliest: the material map is
+    /// written under a partitioning the engine designed, while a mod's parallel structure
+    /// has whatever guard rails the mod author supplied.
+    /// </summary>
+    [GameTest]
+    public static void RegisteredChannelsStepToTheSameValues(Region r)
+    {
+        Scene(r);
+        r.Ticks(60);
+        var first = FieldRegistry.ChecksumAll(r.OriginX, r.OriginY, r.Width, r.Height);
+
+        r.Clear();
+        r.Tick = 0;
+        Scene(r);
+        r.Ticks(60);
+        var second = FieldRegistry.ChecksumAll(r.OriginX, r.OriginY, r.Width, r.Height);
+
+        var moved = first.Where(kv => !second.TryGetValue(kv.Key, out var v) || v != kv.Value)
+                         .Select(kv => kv.Key)
+                         .ToList();
+
+        Log.Event("determinism", new()
+        {
+            ["scene"] = "channels",
+            ["channels"] = first.Count,
+            ["moved"] = moved.Count,
+        });
+
+        if (moved.Count > 0)
+            throw new AssertionException(
+                $"the same scene stepped twice produced different values in: {string.Join(", ", moved)}");
+    }
 }

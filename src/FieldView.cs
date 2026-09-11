@@ -75,6 +75,19 @@ public sealed class FieldView<T>
                     $"but ({x},{y}) is {this[x, y]}\n{_region.Dump(Name)}");
     }
 
+    /// <summary>
+    /// Every cell is unset. AssertUniform(unset) tests the same thing, but its failure talks
+    /// about a value when the question was about sparsity.
+    /// </summary>
+    public void AssertNoneSet()
+    {
+        var set = CountSet();
+        if (set == 0)
+            return;
+        throw new AssertionException(
+            $"{_region.Name} field '{Name}': expected nothing set, found {set} cell(s)\n{Dump()}");
+    }
+
     public string Dump() => _region.Dump(Name);
 
     private void Bounds(int x, int y)

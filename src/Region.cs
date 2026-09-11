@@ -119,6 +119,24 @@ public sealed class Region
     public int ChunksWide => Width / ChunkSize;
     public int ChunksTall => Height / ChunkSize;
 
+    /// <summary>
+    /// Returns every band's space for reuse. Called when a test finishes.
+    ///
+    /// Without it the cursor only ever advances, so a one-chunk region costs 128 cells of a
+    /// 6144-wide world for the lifetime of the process and a band holds about forty-eight
+    /// tests ever. A large enough suite then fails to allocate, and the failure lands on
+    /// whichever tests happen to sort last rather than on whatever grew the suite.
+    ///
+    /// Releasing is safe because a region is cleared, margin included, the moment it is
+    /// handed out, and because only one is live at a time. Capacity becomes a question of
+    /// how many regions a single test holds rather than how many tests exist.
+    /// </summary>
+    public static void ReleaseAll()
+    {
+        lock (AllocLock)
+            NextX.Clear();
+    }
+
     public static Region Allocate(string name, int chunksWide, int chunksTall,
         Altitude band = Altitude.Deep, string? wall = null, int wallThickness = 1)
     {
@@ -131,23 +149,34 @@ public sealed class Region
         var width = chunksWide * ChunkSize;
         var height = chunksTall * ChunkSize;
 
+        var y = (int)band;
+        y -= y % ChunkSize;
+
+        if (width + Margin * 2 >= state.Field.Width || y + height + Margin >= state.Field.Height)
+            throw new AssertionException(
+                $"region '{name}' is too large for the {band} band: {chunksWide}x{chunksTall} chunks " +
+                $"in a {state.Field.Width}x{state.Field.Height} world");
+
         int x;
         lock (AllocLock)
         {
             NextX.TryGetValue(band, out var cursor);
             if (cursor == 0)
                 cursor = ChunkSize;           // leave the world edge alone
+
+            if (cursor + width + Margin >= state.Field.Width)
+                throw new AssertionException(
+                    $"the {band} band is full: no room for '{name}' after " +
+                    $"{(cursor - ChunkSize) / ChunkSize} chunk(s) already allocated. " +
+                    "Regions are released when a test finishes, so this means a single test " +
+                    "asked for more than the band holds.");
+
             x = cursor;
             NextX[band] = cursor + width + Margin;
         }
 
         // Snap to a chunk boundary: the engine's caches and quadrant split assume it.
         x -= x % ChunkSize;
-        var y = (int)band;
-        y -= y % ChunkSize;
-
-        if (x + width + Margin >= state.Field.Width || y + height + Margin >= state.Field.Height)
-            throw new AssertionException($"region '{name}' does not fit in the {band} band");
 
         var region = new Region(name, x, y, width, height);
         region.Clear();
@@ -257,6 +286,28 @@ public sealed class Region
         }
     }
 
+    /// <summary>
+    /// Clears a cell to air. SetRaw(x, y, -1) does the same thing but reads like a raw-id
+    /// escape hatch rather than the ordinary act of punching a hole in a painted layout.
+    /// </summary>
+    public void SetAir(int x, int y) => SetRaw(x, y, -1);
+
+    public void FillAir(int x, int y, int width, int height)
+    {
+        for (var dy = 0; dy < height; dy++)
+        for (var dx = 0; dx < width; dx++)
+            SetRaw(x + dx, y + dy, -1);
+    }
+
+    /// <summary>
+    /// Writes a material id straight into the field.
+    ///
+    /// Documented behavior, not an accident: this bypasses any Harmony patch a mod has on
+    /// SimField's mutators, so test setup does not look like gameplay to the mod under
+    /// test. That is what lets a test fabricate a state the mod's own write path would
+    /// never produce, such as stale per-cell data on a cell that has since been emptied.
+    /// Use Session.SetPixel instead when a test wants the mod to observe the write.
+    /// </summary>
     public void SetRaw(int x, int y, short materialTypeId)
     {
         Bounds(x, y);
@@ -432,6 +483,10 @@ public sealed class Region
                 Simulation.SimulateQuadrant(_state, minX, minY, minX + half, minY + half,
                     window, order, Tick % 4);
             }
+
+            // Mod passes run after the game's quadrant passes and before heat is pinned
+            // again, bounded to this region so a pass cannot act outside the test's world.
+            TickRegistry.StepAll(window, Tick);
 
             if (PinnedHeat is short kelvin)
                 FillHeat(kelvin);

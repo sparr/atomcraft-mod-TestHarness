@@ -58,6 +58,12 @@ public sealed class GameTestAttribute : Attribute
     /// </summary>
     public WorldMode Mode { get; set; } = WorldMode.Creative;
 
+    /// <summary>
+    /// Reset every registered mod channel completely before this test. Leave on unless the
+    /// test deliberately builds on state an earlier one left.
+    /// </summary>
+    public bool ResetModState { get; set; } = true;
+
     /// <summary>Skip with a stated reason, rather than deleting or commenting out.</summary>
     public string? Skip { get; set; }
 
