@@ -14,7 +14,7 @@ namespace Atomcraft.TestHarness;
 public static class ModEntry
 {
     public const string ModId = "TestHarness";
-    public const string Version = "0.2.0";
+    public const string Version = "0.2.1";
 
     /// <summary>Parsed from the args after <c>--</c> on the game command line.</summary>
     public static HarnessOptions Options { get; private set; } = new();

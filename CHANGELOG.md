@@ -2,8 +2,21 @@
 
 The API is public and **deliberately unstable through 0.x**. Breaking changes are expected
 between minor versions and are listed first in each entry. Consumers should call
-`Harness.RequireVersion("0.1")` from their `Initialize`, so a mismatch is reported clearly
+`Harness.RequireVersion("0.2")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
+
+## 0.2.1
+
+Tooling and documentation only. The harness API is unchanged, so `RequireVersion("0.2")`
+is satisfied by this release as well.
+
+- `build-mod.sh` can build the harness itself, which it previously refused to do: it failed
+  its own precondition, because on a fresh checkout nothing has produced the assembly it
+  insists on finding. That left `run-tests.sh` as the only way to install a harness, so
+  testing one mod meant also running the harness's own suite.
+- The README leads with what a release actually contains. Both the source archive and
+  `TestHarness.zip` are usable on their own, for different purposes, and neither requires
+  the other.
 
 ## 0.2.0
 

@@ -29,11 +29,21 @@ mkdir -p "$SCRATCH"
 ARGS=(-p:GameInstallDir="$GAME_DIR" -p:AppData="$SCRATCH")
 [ "$INSTALL_IT" = 1 ] && ARGS+=(-p:TestInstallDir="$INSTALL")
 
+# Building the harness itself is the one case with nothing to reference: it produces the
+# assembly everything else consumes. Without this it fails its own precondition on a fresh
+# checkout, which left ./run-tests.sh as the only way to get a harness installed.
+IS_HARNESS=0
+[ "$(realpath -m "$PROJECT")" = "$(realpath -m src/TestHarness.csproj)" ] && IS_HARNESS=1
+
 # Where a test mod finds the harness assembly. Building the harness from source exports it
 # to $TEST_ROOT/harness, but a consumer installs a release instead and has nothing there, so
 # TEST_HARNESS_DIR from the config or environment wins.
 : "${TEST_HARNESS_DIR:=$TEST_ROOT/harness}"
-if [ ! -f "$TEST_HARNESS_DIR/Atomcraft.TestHarness.dll" ]; then
+if [ "$IS_HARNESS" = 1 ]; then
+  # TestRoot drives the csproj's export target, which is what populates the directory every
+  # other project then reads from.
+  ARGS+=(-p:TestRoot="$TEST_ROOT")
+elif [ ! -f "$TEST_HARNESS_DIR/Atomcraft.TestHarness.dll" ]; then
   die "no Atomcraft.TestHarness.dll under $TEST_HARNESS_DIR.
 
   Building a test mod needs the harness assembly. Either:
@@ -43,9 +53,9 @@ if [ ! -f "$TEST_HARNESS_DIR/Atomcraft.TestHarness.dll" ]; then
       or put that line in atomcraft-test.conf
     - or build the harness from this checkout first, which exports it to
       $TEST_ROOT/harness:
-        ./run-tests.sh"
+        ./build-mod.sh src/TestHarness.csproj --install"
 fi
-ARGS+=(-p:TestHarnessDir="$TEST_HARNESS_DIR")
+[ "$IS_HARNESS" = 1 ] || ARGS+=(-p:TestHarnessDir="$TEST_HARNESS_DIR")
 
 # Building in three escalating steps, because a restore against the default package source
 # can stall for minutes on some machines even when the network is otherwise fine.
