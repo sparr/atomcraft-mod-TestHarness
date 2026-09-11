@@ -104,7 +104,7 @@ Check the harness version from your `Initialize`, since the loader's dependencie
 version constraint and the 0.x API changes between minor versions:
 
 ```csharp
-public static void Initialize() => Harness.RequireVersion("0.2");
+public static void Initialize() => Harness.RequireVersion("0.3");
 ```
 
 Reference the harness assembly, and ship nothing but your own DLL and `mod.json`:

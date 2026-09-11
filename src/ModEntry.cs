@@ -14,7 +14,17 @@ namespace Atomcraft.TestHarness;
 public static class ModEntry
 {
     public const string ModId = "TestHarness";
-    public const string Version = "0.2.1";
+    /// <summary>
+    /// The in-development version between releases, not a release number.
+    ///
+    /// Carries the next minor version so RequireVersion refuses a mod built against the last
+    /// release as soon as the API moves, rather than at release time. Leaving it at the
+    /// released number is how a consumer ends up with a MissingMethodException instead of a
+    /// message naming both versions: the check compares major and minor, so it cannot see a
+    /// breaking change made after the release it names. Set to the plain number when cutting
+    /// the release.
+    /// </summary>
+    public const string Version = "0.3.0-dev";
 
     /// <summary>Parsed from the args after <c>--</c> on the game command line.</summary>
     public static HarnessOptions Options { get; private set; } = new();
