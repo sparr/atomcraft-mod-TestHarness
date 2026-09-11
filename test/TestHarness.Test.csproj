@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      The harness's own tests, as a separate mod.
+
+      Deliberately built the way a consumer builds theirs: its own mod id and zip, a
+      dependency on TestHarness/Main, and the harness assembly referenced through
+      TestHarnessDir rather than a project reference. If that path stops working for
+      consumers, it stops working here first.
+
+      src/ and test/ are siblings so neither project's **/*.cs glob swallows the other,
+      which is the layout the README recommends for a single-mod repository.
+    -->
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AssemblyName>TestHarness.Test</AssemblyName>
+        <RootNamespace>Atomcraft.TestHarness.Test</RootNamespace>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="Atomcraft">
+            <HintPath>$(GameDataDir)/Atomcraft.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="GodotSharp">
+            <HintPath>$(GameDataDir)/GodotSharp.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Atomcraft.TestHarness">
+            <HintPath>$(TestHarnessDir)/Atomcraft.TestHarness.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- No Harmony reference: the tests patch nothing. The harness does the patching,
+             and a package reference here would be a restore dependency for no benefit. -->
+    </ItemGroup>
+
+    <Target Name="CreateModZip" AfterTargets="Build">
+        <PropertyGroup>
+            <ModName>TestHarness.Test</ModName>
+            <StageDir>$(MSBuildThisFileDirectory)../build/test-stage/$(ModName)</StageDir>
+            <ModZip>$(MSBuildThisFileDirectory)../build/$(ModName).zip</ModZip>
+        </PropertyGroup>
+        <RemoveDir Directories="$(MSBuildThisFileDirectory)../build/test-stage" />
+        <MakeDir Directories="$(StageDir)" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(StageDir)" />
+        <Copy SourceFiles="$(MSBuildThisFileDirectory)mod.json" DestinationFolder="$(StageDir)" />
+        <Delete Files="$(ModZip)" />
+        <ZipDirectory SourceDirectory="$(MSBuildThisFileDirectory)../build/test-stage"
+                      DestinationFile="$(ModZip)" Overwrite="true" />
+        <Message Importance="high" Text="mod zip: $(ModZip)" />
+    </Target>
+
+    <Target Name="InstallModZip" AfterTargets="CreateModZip" Condition="'$(TestInstallDir)' != ''">
+        <MakeDir Directories="$(TestInstallDir)/Mods" />
+        <Copy SourceFiles="$(ModZip)" DestinationFolder="$(TestInstallDir)/Mods" />
+        <Message Importance="high" Text="installed to $(TestInstallDir)/Mods/$(ModName).zip" />
+    </Target>
+
+</Project>

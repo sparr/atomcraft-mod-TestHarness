@@ -1,0 +1,15 @@
+{
+  "id": "TestHarness.Test",
+  "name": "TestHarness Tests",
+  "description": "The test harness's own tests. Install only when working on the harness.",
+  "author": "sparr",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "moduleId": "TestHarness.Test/Main",
+      "dll": "TestHarness.Test.dll",
+      "initClass": "Atomcraft.TestHarness.Test.ModEntry",
+      "dependencies": ["TestHarness/Main"]
+    }
+  ]
+}
