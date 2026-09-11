@@ -37,6 +37,10 @@ registration rather than at compile time.
   filter that will not compile, now fails the run with a message naming the filter and the
   matching rule. Reported by the Pressure mod.
 
+- **`--atomtest-exclude`**, the same kind of pattern as the filter, applied after it and
+  winning over it for a test both match. Expressing "this class except that test" with the
+  filter alone needs a negative lookahead.
+
 ### Changed
 
 - **`--atomtest-filter` is a regular expression**, case-insensitive and unanchored, rather

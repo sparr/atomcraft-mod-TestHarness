@@ -49,7 +49,9 @@ public static class TestExecutor
     private static int _exceptionsBefore;
 
     /// <summary>Starts the suite. Call <see cref="Step"/> once per frame until it returns true.</summary>
-    public static void Begin(string? filter)
+    public static void Begin(string? filter) => Begin(filter, null);
+
+    public static void Begin(string? filter, string? exclude)
     {
         EnsureGameReady();
 
@@ -59,18 +61,21 @@ public static class TestExecutor
 
         // A pattern that will not compile is reported rather than thrown: it is a usage
         // mistake, and a stack trace out of the runner would look like the harness breaking.
-        System.Text.RegularExpressions.Regex? pattern = null;
-        if (filter != null)
+        System.Text.RegularExpressions.Regex? pattern = null, excluded = null;
+
+        foreach (var (name, value) in new[] { ("filter", filter), ("exclude", exclude) })
         {
+            if (value == null) continue;
             try
             {
-                pattern = TestCase.Compile(filter);
+                var compiled = TestCase.Compile(value);
+                if (name == "filter") pattern = compiled; else excluded = compiled;
             }
             catch (ArgumentException e)
             {
                 _queue = new List<TestCase>();
                 _selectionError =
-                    $"the filter '{filter}' is not a valid regular expression: {e.Message.Trim()}";
+                    $"the {name} '{value}' is not a valid regular expression: {e.Message.Trim()}";
                 Artifacts.Reset();
                 Log.Event("run_start", new() { ["tests"] = 0, ["discovered"] = all.Count, ["filter"] = filter });
                 Log.Error(_selectionError);
@@ -78,8 +83,11 @@ public static class TestExecutor
             }
         }
 
-        _queue = all.Where(t => t.Matches(pattern)).ToList();
-        _selectionError = SelectionError(filter, all.Count, _queue.Count);
+        // Exclude wins over filter for a test both match. Selecting something and then
+        // excluding it is a deliberate act, "this class except that test", so the narrower
+        // statement is the one that should hold.
+        _queue = all.Where(t => t.Matches(pattern) && !Excluded(t, excluded)).ToList();
+        _selectionError = SelectionError(filter, all.Count, _queue.Count, exclude, all.Count(t => t.Matches(pattern)));
 
         // Before any test runs, so nothing left by the previous run can be mistaken for
         // evidence from this one.
@@ -90,11 +98,20 @@ public static class TestExecutor
             ["tests"] = _queue.Count,
             ["discovered"] = all.Count,
             ["filter"] = filter,
+            ["exclude"] = exclude,
         });
 
         if (_selectionError != null)
             Log.Error(_selectionError);
     }
+
+    /// <summary>
+    /// Whether a test is excluded. A null exclude excludes nothing; note this is not
+    /// TestCase.Matches, whose null means "matches everything", which is the right default for
+    /// a filter and exactly the wrong one here.
+    /// </summary>
+    private static bool Excluded(TestCase test, System.Text.RegularExpressions.Regex? exclude) =>
+        exclude != null && test.Matches(exclude);
 
     private static string? _selectionError;
 
@@ -106,10 +123,17 @@ public static class TestExecutor
     /// nothing is far likelier to be a typo, or a regex written for a matcher that only does
     /// substrings, than a deliberate request to run no tests.
     /// </summary>
-    public static string? SelectionError(string? filter, int discovered, int selected)
+    public static string? SelectionError(string? filter, int discovered, int selected,
+        string? exclude = null, int? matchedBeforeExclude = null)
     {
         if (selected > 0)
             return null;
+
+        // Said first, because it names the thing that actually emptied the run. A reader told
+        // only that the filter matched nothing would go and fix a filter that was working.
+        if (exclude != null && matchedBeforeExclude > 0)
+            return $"the exclude '{exclude}' removed all {matchedBeforeExclude} test(s) the " +
+                   $"filter selected, so this run tested nothing.";
 
         if (discovered == 0)
             return "no tests were found at all. A test mod must be installed alongside the " +

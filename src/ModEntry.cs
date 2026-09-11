@@ -87,6 +87,13 @@ public sealed class HarnessOptions
     /// <summary>Substring match against the fully qualified test name.</summary>
     public string? Filter { get; private set; }
 
+    /// <summary>
+    /// Tests to leave out, as a regular expression. Applied after Filter, so the two compose:
+    /// select a class and drop one test from it. Expressing that with Filter alone needs a
+    /// negative lookahead, which nobody enjoys reading or writing.
+    /// </summary>
+    public string? Exclude { get; private set; }
+
     /// <summary>Run the one-shot game diagnostics before the suite.</summary>
     public bool Diagnose { get; private set; }
 
@@ -104,6 +111,7 @@ public sealed class HarnessOptions
                 case "--atomtest-force-exit":      o.ForceExitCode = ParseInt(value, 0); break;
                 case "--atomtest-allow-engine-exceptions": o.AllowEngineExceptions = true; break;
                 case "--atomtest-filter":          o.Filter = value; break;
+                case "--atomtest-exclude":         o.Exclude = value; break;
                 case "--atomtest-diagnose":        o.Diagnose = true; break;
             }
         }

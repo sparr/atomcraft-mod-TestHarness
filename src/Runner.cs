@@ -50,7 +50,7 @@ public static class Runner
                     Diagnostics.MaterialIdSpaces();
                     Diagnostics.AmbientProfile();
                 }
-                TestExecutor.Begin(ModEntry.Options.Filter);
+                TestExecutor.Begin(ModEntry.Options.Filter, ModEntry.Options.Exclude);
                 return;
             }
 

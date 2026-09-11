@@ -105,6 +105,40 @@ public static class SelectionTests
     }
 
     /// <summary>
+    /// Exclude wins over filter for a test both match, which is the whole point: "this class
+    /// except that test" is the common case, and it only works if the narrower statement holds.
+    /// </summary>
+    [GameTest]
+    public static void ExcludeOverridesFilterOnOverlap()
+    {
+        var test = TestDiscovery.Discover(null)
+            .FirstOrDefault(t => t.Name.EndsWith(nameof(ExcludeOverridesFilterOnOverlap)));
+
+        if (test == null)
+            throw new AssertionException("could not find this test in discovery");
+
+        // Both patterns match this test; the exclude has to be the one that decides.
+        const string filter = "SelectionTests";
+        const string exclude = "ExcludeOverridesFilterOnOverlap";
+
+        if (!test.Matches(filter) || !test.Matches(exclude))
+            throw new AssertionException(
+                "this test should match both patterns, or the overlap is not being exercised");
+
+        var selected = TestDiscovery.Discover(null)
+            .Where(t => t.Matches(filter) && !t.Matches(exclude))
+            .ToList();
+
+        if (selected.Any(t => t.Name.EndsWith(nameof(ExcludeOverridesFilterOnOverlap))))
+            throw new AssertionException("the excluded test survived selection");
+
+        if (selected.Count == 0)
+            throw new AssertionException(
+                "excluding one test removed the whole class, so this proves nothing about " +
+                "precedence");
+    }
+
+    /// <summary>
     /// A pattern that will not compile is a usage mistake, reported the same way as one that
     /// matches nothing rather than thrown out of the runner as though the harness broke.
     /// </summary>

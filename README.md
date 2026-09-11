@@ -73,9 +73,14 @@ harness crashed, 71 an engine exception storm, 72 the engine logged exceptions, 
 
 `--atomtest-filter` is a case-insensitive, unanchored regular expression over the full,
 assembly-qualified test name, so a plain word selects every name containing it and
-`Session|Artifact` selects both. A filter matching nothing, or one that will not compile, fails
-the run rather than passing silently: a green build that tested nothing is indistinguishable
-from one where everything passed.
+`Session|Artifact` selects both. `--atomtest-exclude` takes the same kind of pattern and wins
+over the filter for a test both match, so `--atomtest-filter=Session --atomtest-exclude=Reload`
+means "the session tests except the reload one".
+
+A run that selects nothing fails rather than passing silently, whether because the filter
+matched nothing, the exclude removed everything the filter found, or a pattern will not
+compile. A green build that tested nothing is indistinguishable from one where everything
+passed.
 
 Results land in `$TEST_ROOT/out/`: `results.jsonl` one record per test, plus a copy of
 `godot.log`.
