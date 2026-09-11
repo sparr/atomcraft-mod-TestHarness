@@ -84,6 +84,9 @@ public sealed class TestCase
     /// <summary>Assembly-qualified so two mods can name a test the same thing.</summary>
     public string Name => $"{Method.DeclaringType?.Assembly.GetName().Name}.{Method.DeclaringType?.Name}.{Method.Name}";
 
+    /// <summary>The assembly this test came from, for the version refusal check.</summary>
+    public string? AssemblyName => Method.DeclaringType?.Assembly.GetName().Name;
+
     public string Status { get; set; } = "pending";
     public string? Failure { get; set; }
     public long ElapsedMs { get; set; }

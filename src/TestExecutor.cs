@@ -89,6 +89,26 @@ public static class TestExecutor
         }
 
         var test = _queue[_index++];
+
+        // A mod whose Initialize was refused for a version mismatch never registered its
+        // channels, state, materials, or patches, so its tests would run against a harness
+        // that knows nothing about it. Failed rather than skipped on purpose: a skip leaves
+        // the run green and the exit code zero, and a mod that was never tested at all would
+        // report success.
+        if (Harness.RefusalReason(test.AssemblyName) is string refusal)
+        {
+            test.Status = "failed";
+            test.Failure = refusal;
+            _failed++;
+            Log.Event("test", new()
+            {
+                ["name"] = test.Name,
+                ["status"] = "failed",
+                ["failure"] = refusal,
+            });
+            return false;
+        }
+
         if (test.Attr.Skip is string reason)
         {
             test.Status = "skipped";

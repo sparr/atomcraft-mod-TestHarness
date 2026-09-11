@@ -28,9 +28,36 @@ public static class Harness
             $"this mod was built against TestHarness {expected}, but {Version} is installed. " +
             "The 0.x API changes between minor versions; update the mod or install the " +
             "matching harness release.";
+
+        // Recorded before throwing, because throwing is not enough on its own. The loader
+        // loads a mod's assembly before calling Initialize, and the harness discovers tests
+        // by scanning loaded assemblies, so a refused mod's tests are found and run anyway,
+        // against a harness its Initialize never got to register anything with. Refusing the
+        // mod has to refuse its tests too or the check achieves nothing.
+        var assembly = new System.Diagnostics.StackTrace().GetFrames()
+            ?.Select(f => f.GetMethod()?.DeclaringType?.Assembly)
+            .FirstOrDefault(a => a != null && a != typeof(Harness).Assembly);
+
+        if (assembly != null)
+            Refused[assembly.GetName().Name ?? "?"] = message;
+        else
+            Log.Warn("could not identify the mod that failed RequireVersion; its tests will run");
+
         Log.Error(message);
         throw new AssertionException(message);
     }
+
+    private static readonly Dictionary<string, string> Refused = new();
+
+    /// <summary>
+    /// Why the named assembly's mod was refused, or null if it was not.
+    ///
+    /// Its tests are failed rather than skipped. A skipped test leaves the run green and the
+    /// exit code zero, so a mod that was never tested at all would report success, which is
+    /// the failure this whole mechanism exists to make impossible.
+    /// </summary>
+    public static string? RefusalReason(string? assemblyName) =>
+        assemblyName != null && Refused.TryGetValue(assemblyName, out var why) ? why : null;
 
     private static bool Matches(string expected, string actual)
     {
