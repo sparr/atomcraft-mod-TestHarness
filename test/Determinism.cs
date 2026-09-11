@@ -152,6 +152,20 @@ public static class Determinism
     }
 
     /// <summary>
+    /// Both registries at once. Per-cell channels are keyed by channel name and global state
+    /// by state name, prefixed so a collision between the two cannot hide a difference.
+    /// </summary>
+    private static Dictionary<string, int> Snapshot(Region r)
+    {
+        var sums = new Dictionary<string, int>();
+        foreach (var (name, sum) in FieldRegistry.ChecksumAll(r.OriginX, r.OriginY, r.Width, r.Height))
+            sums[$"field:{name}"] = sum;
+        foreach (var (name, sum) in StateRegistry.ChecksumAll())
+            sums[$"state:{name}"] = sum;
+        return sums;
+    }
+
+    /// <summary>
     /// Every registered channel, the game's and any mod's, is identical after stepping the
     /// same scene twice.
     ///
@@ -165,13 +179,13 @@ public static class Determinism
     {
         Scene(r);
         r.Ticks(60);
-        var first = FieldRegistry.ChecksumAll(r.OriginX, r.OriginY, r.Width, r.Height);
+        var first = Snapshot(r);
 
         r.Clear();
         r.Tick = 0;
         Scene(r);
         r.Ticks(60);
-        var second = FieldRegistry.ChecksumAll(r.OriginX, r.OriginY, r.Width, r.Height);
+        var second = Snapshot(r);
 
         var moved = first.Where(kv => !second.TryGetValue(kv.Key, out var v) || v != kv.Value)
                          .Select(kv => kv.Key)

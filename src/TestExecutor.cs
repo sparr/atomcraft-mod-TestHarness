@@ -304,9 +304,13 @@ public static class TestExecutor
             Simulation.CurrentState.Tick = test.Attr.StartTick;
 
         // Channels can hold state outside the region a test is handed, and a world-level
-        // aggregate would otherwise carry between tests silently.
+        // aggregate would otherwise carry between tests silently. Registered global state is
+        // worse: no rectangle describes it at all, so nothing else would ever clear it.
         if (test.Attr.ResetModState)
+        {
             FieldRegistry.ResetAll();
+            StateRegistry.ResetAll();
+        }
 
         // World mode is global state, so it is set per test rather than once per run.
         if (Game.SaveData_World is SaveData_World world)
