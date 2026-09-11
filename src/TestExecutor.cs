@@ -38,6 +38,12 @@ public static class TestExecutor
     private static Wait? _waiting;
     private static int _framesOnCurrent;
     private static TestCase? _current;
+
+    /// <summary>
+    /// The test currently running, or null between tests. Exists so an artifact can be filed
+    /// under the test that produced it without every caller passing its own name.
+    /// </summary>
+    public static string? CurrentTestName => _current?.Name;
     private static Region? _currentRegion;
     private static Stopwatch? _watch;
     private static int _exceptionsBefore;
@@ -50,6 +56,10 @@ public static class TestExecutor
         _queue = TestDiscovery.Discover(filter);
         _index = 0;
         _passed = _failed = _skipped = 0;
+
+        // Before any test runs, so nothing left by the previous run can be mistaken for
+        // evidence from this one.
+        Artifacts.Reset();
 
         Log.Event("run_start", new()
         {
@@ -84,6 +94,7 @@ public static class TestExecutor
                 ["passed"] = _passed,
                 ["failed"] = _failed,
                 ["skipped"] = _skipped,
+                ["artifacts"] = Artifacts.Count,
             });
             return true;
         }

@@ -429,6 +429,29 @@ theirs: a separate mod with its own id and zip, a dependency on `TestHarness/Mai
 check in `Initialize`, and the harness resolved through `TestHarnessDir` rather than a
 project reference. If that path breaks, it breaks there first.
 
+## Artifacts
+
+A test that produces a file, a rendering, a dump, a CSV of what happened, writes it here
+rather than inventing a path:
+
+```csharp
+Artifacts.Write("before.txt", r.Dump());
+Artifacts.WriteBytes("frame.png", encoded);
+var path = Artifacts.Path("render.png");   // when something else does the writing
+```
+
+Files are filed under the running test, so two tests may both write `before.txt`. The
+directory is emptied at the start of every run, so anything in it belongs to the run you just
+did, and each file is announced in `results.jsonl` as an `artifact` record naming the test,
+the relative path, and the size. `run_summary` carries the count.
+
+They land in `$TEST_ROOT/out/artifacts/`, beside `results.jsonl` and `godot.log`, copied there
+after the run because the game writes them inside its own prefix. Collect them before the next
+run, which clears them.
+
+If you use `Artifacts.Path` and write the file yourself, call `Artifacts.Announce(path)`
+afterwards or it will be collected but not reported.
+
 ## Validating your mod
 
 Generic checks for the mistakes that produce no error at load and no crash, just a mod that

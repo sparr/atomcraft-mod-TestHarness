@@ -67,4 +67,17 @@ if [ -n "$GODOT_LOG" ] && [ -f "$GODOT_LOG" ]; then
 else
   say "no godot.log found under the test prefix"
 fi
+
+# Artifacts a test wrote. They live under user://, which is inside the Wine prefix, so they
+# are collected next to the log and the results rather than left where only this script knows
+# to look. The harness empties its directory at the start of every run, so what is here
+# belongs to the run that just finished.
+# user_dir already resolves through Godot/app_userdata/Atomcraft, including the lowercase
+# variant a long-lived prefix uses, so the artifact directory hangs directly off it.
+ARTIFACTS="$(user_dir 2>/dev/null || true)/atomtest-artifacts"
+if [ -d "$ARTIFACTS" ]; then
+  rm -rf "$OUT/artifacts"
+  cp -r "$ARTIFACTS" "$OUT/artifacts"
+  say "artifacts: $OUT/artifacts ($(find "$OUT/artifacts" -type f | wc -l) file(s))"
+fi
 exit $rc
