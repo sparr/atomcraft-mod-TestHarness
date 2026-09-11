@@ -26,23 +26,31 @@ done
 SCRATCH="$TEST_ROOT/scratch-appdata"
 mkdir -p "$SCRATCH"
 
-ARGS=(-p:GameInstallDir="$GAME_DIR" -p:AppData="$SCRATCH")
+# TestRoot drives the harness csproj's ExportForConsumers target, which publishes the
+# assembly every test mod compiles against. Passed unconditionally: only the harness project
+# declares that target, so it is inert everywhere else, and making it conditional on
+# recognising the harness project meant a caller who named that project any other way,
+# a directory rather than the csproj, a symlinked path, a different relative form, silently
+# got a build that installed a new harness while leaving consumers compiling against the old
+# assembly. The symptom is a wall of CS0246 for API that plainly exists in the source you
+# just built.
+ARGS=(-p:GameInstallDir="$GAME_DIR" -p:AppData="$SCRATCH" -p:TestRoot="$TEST_ROOT")
 [ "$INSTALL_IT" = 1 ] && ARGS+=(-p:TestInstallDir="$INSTALL")
 
 # Building the harness itself is the one case with nothing to reference: it produces the
 # assembly everything else consumes. Without this it fails its own precondition on a fresh
 # checkout, which left ./run-tests.sh as the only way to get a harness installed.
 IS_HARNESS=0
-[ "$(realpath -m "$PROJECT")" = "$(realpath -m src/TestHarness.csproj)" ] && IS_HARNESS=1
+case "$(realpath -m "$PROJECT")" in
+  "$(realpath -m src/TestHarness.csproj)"|"$(realpath -m src)") IS_HARNESS=1 ;;
+esac
 
 # Where a test mod finds the harness assembly. Building the harness from source exports it
 # to $TEST_ROOT/harness, but a consumer installs a release instead and has nothing there, so
 # TEST_HARNESS_DIR from the config or environment wins.
 : "${TEST_HARNESS_DIR:=$TEST_ROOT/harness}"
 if [ "$IS_HARNESS" = 1 ]; then
-  # TestRoot drives the csproj's export target, which is what populates the directory every
-  # other project then reads from.
-  ARGS+=(-p:TestRoot="$TEST_ROOT")
+  : # nothing to reference: this project produces the assembly the others consume
 elif [ ! -f "$TEST_HARNESS_DIR/Atomcraft.TestHarness.dll" ]; then
   die "no Atomcraft.TestHarness.dll under $TEST_HARNESS_DIR.
 

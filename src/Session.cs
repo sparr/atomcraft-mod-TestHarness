@@ -246,6 +246,19 @@ public static class Session
         bool incremental = false)
     {
         Save(incremental);
+        yield return Reload(fixture, mode);
+    }
+
+    /// <summary>
+    /// Leaves and re-enters the current world, reading it back from disk. The reload half of
+    /// SaveAndReload, separated so there is exactly one place that knows about the cache.
+    ///
+    /// Use this rather than Leave plus Enter whenever a test needs the world to come back off
+    /// disk, and particularly when it has written something between the save and the reload
+    /// that the reload is supposed to discard.
+    /// </summary>
+    public static IEnumerator Reload(string fixture = "flat", WorldMode mode = WorldMode.Creative)
+    {
         yield return Leave();
 
         // Without this the re-entry never touches the save file. FileManager caches the

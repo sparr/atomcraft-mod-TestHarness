@@ -109,8 +109,12 @@ public static class Persistence
         for (var dx = 0; dx < unsavedRect.Width; dx++)
             spec.Put(unsavedRect.X + dx, unsavedRect.Y + dy, marker);
 
-        yield return Session.Leave();
-        yield return Session.Enter(fresh: false);
+        // Session.Reload rather than Leave plus Enter: re-entering without clearing
+        // FileManager's universe cache is served from memory, so the mod loader's restore
+        // hook never runs. For a mod that clears its state when a world ends, which the
+        // harness now does for every registered channel, that produces a false failure
+        // reading as "your save hook is broken" rather than a false pass.
+        yield return Session.Reload();
 
         var survived = Capture(spec, savedRect.X, savedRect.Y, savedRect.Width, savedRect.Height);
         var lost = saved.Count(kv => !EqualityComparer<T>.Default.Equals(kv.Value, survived[kv.Key]));
