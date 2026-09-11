@@ -26,6 +26,12 @@
             <HintPath>$(GameDataDir)/Atomcraft.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- The game loads material JSON with Newtonsoft, so a test of that path uses the
+             game's own copy rather than a package. -->
+        <Reference Include="Newtonsoft.Json">
+            <HintPath>$(GameInstallDir)\data_Atomcraft_windows_x86_64\Newtonsoft.Json.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
         <Reference Include="GodotSharp">
             <HintPath>$(GameDataDir)/GodotSharp.dll</HintPath>
             <Private>false</Private>

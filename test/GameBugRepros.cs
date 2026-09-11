@@ -1,4 +1,5 @@
 using Atomcraft;
+using Newtonsoft.Json;
 
 namespace Atomcraft.TestHarness.Test;
 
@@ -45,5 +46,101 @@ public static class GameBugRepros
 
         Log.Info($"MaxTemperature unenforced: {input} decomposed at {ambient} K " +
                  $"(ceiling {ceiling} K) after {fired} tick(s)");
+    }
+
+    /// <summary>
+    /// MaterialType's constructor from Serializable_MaterialType assigns DissolvesInto =
+    /// null and never reads the serializable field, so the value cannot be set from data.
+    ///
+    /// All three data paths share this constructor: the game's own AllMaterials.json, the
+    /// user's user://Materials/ overrides, and a mod's materials JSON injected by
+    /// GodotMonoModLoader. So testing the constructor covers all of them.
+    ///
+    /// Note the reverse direction works: Serializable_MaterialType's constructor converts
+    /// the short[] back to names, so the field is written out and never read back in.
+    /// </summary>
+    [GameTest]
+    public static void DissolvesIntoCannotBeSetFromData()
+    {
+        // Deserialized from text rather than constructed, so the test covers Newtonsoft
+        // reading the field as well as the constructor discarding it.
+        const string json = """
+            [{ "Name": "TestHarness Dissolve Probe",
+               "DissolvesInto": [ "Water", "Oxygen Gas" ] }]
+            """;
+
+        var serializable = JsonConvert.DeserializeObject<List<Serializable_MaterialType>>(json)![0];
+
+        if (serializable.DissolvesInto is not { Length: 2 })
+            throw new AssertionException(
+                "the JSON itself did not parse, so this test would prove nothing about " +
+                "MaterialType. Serializable_MaterialType.DissolvesInto came back as " +
+                (serializable.DissolvesInto == null ? "null" : $"{serializable.DissolvesInto.Length} entries"));
+
+        var materialType = new MaterialType(serializable);
+
+        if (materialType.DissolvesInto != null)
+            throw new AssertionException(
+                "MaterialType now carries DissolvesInto from JSON, so the game has been " +
+                "fixed and this test should be inverted. Got " +
+                string.Join(", ", materialType.DissolvesInto));
+    }
+
+    /// <summary>
+    /// Dissolving overflows a stack buffer, so a material that declares DissolvesInto
+    /// crashes the simulation as soon as sulfuric acid touches it.
+    ///
+    /// Utils.GetSelfAndAdjacentCoords always writes 9 coordinates, the 3x3 block including
+    /// self. TryDissolve gives it stackalloc Vector2I[8] (BaseMaterial.cs:1715) and throws
+    /// IndexOutOfRangeException on the ninth write. The sibling call site directly below,
+    /// TryConductSpecificPair at :1830, allocates 9 and is correct.
+    ///
+    /// This has never been reachable in a shipped game: DissolvesInto cannot be set from
+    /// data (see above) and no vanilla material declares it, so the two defects mask each
+    /// other. Fixing the data binding alone would expose this crash.
+    ///
+    /// Set from code here, since data cannot reach it. BaseMaterial instances are shared
+    /// for the whole world, so the probe material is restored before returning.
+    ///
+    /// Apatite is the target: static so it does not fall away from the acid, and it appears
+    /// in no reaction, so nothing else can account for it disappearing.
+    /// </summary>
+    [GameTest(Wall = "Granite")]
+    public static void DissolvingOverflowsItsCoordinateBuffer(Region r)
+    {
+        const string target = "Apatite";
+        var material = Materials.TryGetBaseMaterial(target)
+            ?? throw new AssertionException($"no BaseMaterial for '{target}'");
+
+        var setter = typeof(BaseMaterial)
+            .GetProperty(nameof(BaseMaterial.DissolvesInto))!
+            .GetSetMethod(nonPublic: true)!;
+        var original = material.DissolvesInto;
+
+        try
+        {
+            setter.Invoke(material, [new[] { "Water".ToMaterialTypeId(), "Water".ToMaterialTypeId() }]);
+
+            r.Set(10, 10, target);
+            r.Set(10, 9, "Sulfuric Acid");
+
+            try
+            {
+                r.Ticks(5);
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return;   // the documented crash, thrown out of Simulation.Step
+            }
+
+            throw new AssertionException(
+                "dissolving no longer overflows its buffer, so the game has been fixed and " +
+                "this test should be inverted to assert that " + target + " dissolves into " +
+                $"Water. Currently at (10,10): {r.At(10, 10) ?? "air"}\n{r.Dump()}");
+        }
+        finally
+        {
+            setter.Invoke(material, [original]);
+        }
     }
 }
