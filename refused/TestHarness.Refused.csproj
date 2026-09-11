@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      A mod that exists only to be refused.
+
+      Its Initialize asks for a harness version that will never exist, so the version check
+      rejects it every run. That makes the refusal mechanism testable: without a mod that is
+      actually refused, the only way to exercise it is to refuse the test mod itself, which
+      would take the whole suite down with it.
+
+      It carries no tests. A refused mod's tests are reported as failures, which is correct
+      and would leave this suite permanently red, so the assertions live in TestHarness.Test
+      and inspect the refusal rather than being subject to it.
+    -->
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AssemblyName>TestHarness.Refused</AssemblyName>
+        <RootNamespace>Atomcraft.TestHarness.Refused</RootNamespace>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="Atomcraft">
+            <HintPath>$(GameDataDir)/Atomcraft.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- The game loads material JSON with Newtonsoft, so a test of that path uses the
+             game's own copy rather than a package. -->
+        <Reference Include="Newtonsoft.Json">
+            <HintPath>$(GameInstallDir)\data_Atomcraft_windows_x86_64\Newtonsoft.Json.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="GodotSharp">
+            <HintPath>$(GameDataDir)/GodotSharp.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Atomcraft.TestHarness">
+            <HintPath>$(TestHarnessDir)/Atomcraft.TestHarness.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- No Harmony reference: the tests patch nothing. The harness does the patching,
+             and a package reference here would be a restore dependency for no benefit. -->
+    </ItemGroup>
+
+    <Target Name="CreateModZip" AfterTargets="Build">
+        <PropertyGroup>
+            <ModName>TestHarness.Refused</ModName>
+            <StageDir>$(MSBuildThisFileDirectory)../build/refused-stage/$(ModName)</StageDir>
+            <ModZip>$(MSBuildThisFileDirectory)../build/$(ModName).zip</ModZip>
+        </PropertyGroup>
+        <RemoveDir Directories="$(MSBuildThisFileDirectory)../build/refused-stage" />
+        <MakeDir Directories="$(StageDir)" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(StageDir)" />
+        <Copy SourceFiles="$(MSBuildThisFileDirectory)mod.json" DestinationFolder="$(StageDir)" />
+        <Delete Files="$(ModZip)" />
+        <ZipDirectory SourceDirectory="$(MSBuildThisFileDirectory)../build/refused-stage"
+                      DestinationFile="$(ModZip)" Overwrite="true" />
+        <Message Importance="high" Text="mod zip: $(ModZip)" />
+    </Target>
+
+    <Target Name="InstallModZip" AfterTargets="CreateModZip" Condition="'$(TestInstallDir)' != ''">
+        <MakeDir Directories="$(TestInstallDir)/Mods" />
+        <Copy SourceFiles="$(ModZip)" DestinationFolder="$(TestInstallDir)/Mods" />
+        <Message Importance="high" Text="installed to $(TestInstallDir)/Mods/$(ModName).zip" />
+    </Target>
+
+</Project>

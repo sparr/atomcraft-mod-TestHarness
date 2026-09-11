@@ -1,0 +1,15 @@
+{
+  "id": "TestHarness.Refused",
+  "name": "TestHarness Refusal Fixture",
+  "description": "Exists only to be refused by the harness version check. Install only when working on the harness.",
+  "author": "sparr",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "moduleId": "TestHarness.Refused/Main",
+      "dll": "TestHarness.Refused.dll",
+      "initClass": "Atomcraft.TestHarness.Refused.ModEntry",
+      "dependencies": ["TestHarness/Main"]
+    }
+  ]
+}

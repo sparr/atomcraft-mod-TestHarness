@@ -66,6 +66,12 @@ if [ "$BUILD" = 1 ]; then
   # The harness's own tests are a separate mod, built the way a consumer builds theirs:
   # against the exported assembly rather than a project reference, so the path consumers
   # use breaks here first if it breaks at all.
+  # A mod that exists only to be refused by the version check, so the refusal mechanism has
+  # a real subject. See refused/TestHarness.Refused.csproj.
+  echo "==> building the refusal fixture"
+  GameInstallDir="$GAME_DIR" TestInstallDir="$INSTALL" TestHarnessDir="$TEST_ROOT/harness" \
+    build_project refused/TestHarness.Refused.csproj
+
   echo "==> building harness tests"
   GameInstallDir="$GAME_DIR" TestInstallDir="$INSTALL" TestHarnessDir="$TEST_ROOT/harness" \
     build_project test/TestHarness.Test.csproj
