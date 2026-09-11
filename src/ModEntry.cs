@@ -1,0 +1,196 @@
+using System.Reflection;
+using System.Text;
+using Atomcraft;
+using Godot;
+using HarmonyLib;
+
+namespace Atomcraft.TestHarness;
+
+/// <summary>
+/// Loader entry point. Runs before <c>Game._Ready</c>, so it may only install Harmony
+/// patches and set up harness state: no Materials, Craftables, Reactions, Simulation or
+/// Game access from here.
+/// </summary>
+public static class ModEntry
+{
+    public const string ModId = "TestHarness";
+    public const string Version = "0.1.0";
+
+    /// <summary>Parsed from the args after <c>--</c> on the game command line.</summary>
+    public static HarnessOptions Options { get; private set; } = new();
+
+    public static void Initialize()
+    {
+        Options = HarnessOptions.Parse(OS.GetCmdlineUserArgs());
+
+        Log.Banner($"{ModId} {Version} initializing");
+        Log.Event("boot", new()
+        {
+            ["harness"] = Version,
+            ["headlessServer"] = Options.HeadlessServer,
+            ["run"] = Options.Run,
+        });
+
+        if (Options.HeadlessServer)
+        {
+            // Skips Cursors, Inventory and EditorHUD node init in Game._Ready, and
+            // suppresses client feedback in Simulation. Never set by the shipped game.
+            Game.IsHeadlessServer = true;
+            Log.Info("Game.IsHeadlessServer = true");
+        }
+
+        AssemblyDiagnostics.WarnOnDuplicateSimpleNames();
+
+        var harmony = new Harmony("sparr." + ModId);
+        ExceptionSuppressor.Install(harmony);
+        WorldFixtures.Install(harmony);
+        harmony.PatchAll(Assembly.GetExecutingAssembly());
+        foreach (var m in harmony.GetPatchedMethods())
+            Log.Info($"patched: {m.DeclaringType?.FullName}.{m.Name}");
+    }
+
+}
+
+/// <summary>Command line options, all namespaced to avoid colliding with other mods.</summary>
+public sealed class HarnessOptions
+{
+    /// <summary>Run the suite and quit. Without this the harness stays passive.</summary>
+    public bool Run { get; private set; }
+
+    /// <summary>
+    /// Set <see cref="Game.IsHeadlessServer"/> before the game initializes. Defaults OFF:
+    /// the flag is dead code in the shipped game and enabling it throws a
+    /// NullReferenceException every frame (see PLAN.md section 8.3). Kept as an opt-in only
+    /// so a future game version that wires it up can be retested cheaply.
+    /// </summary>
+    public bool HeadlessServer { get; private set; }
+
+    /// <summary>Frames to wait after boot before running. Boot is ~6.5s, most of it pre-frame.</summary>
+    public int SettleFrames { get; private set; } = 2;
+
+    /// <summary>Forced exit code, for proving the wrapper propagates failures.</summary>
+    public int? ForceExitCode { get; private set; }
+
+    /// <summary>Do not fail the run merely because the engine logged exceptions.</summary>
+    public bool AllowEngineExceptions { get; private set; }
+
+    /// <summary>Substring match against the fully qualified test name.</summary>
+    public string? Filter { get; private set; }
+
+    /// <summary>Run the one-shot game diagnostics before the suite.</summary>
+    public bool Diagnose { get; private set; }
+
+    public static HarnessOptions Parse(string[] args)
+    {
+        var o = new HarnessOptions();
+        foreach (var arg in args)
+        {
+            var (key, value) = Split(arg);
+            switch (key)
+            {
+                case "--atomtest-run":             o.Run = true; break;
+                case "--atomtest-headless-server": o.HeadlessServer = value != "false"; break;
+                case "--atomtest-settle-frames":   o.SettleFrames = ParseInt(value, o.SettleFrames); break;
+                case "--atomtest-force-exit":      o.ForceExitCode = ParseInt(value, 0); break;
+                case "--atomtest-allow-engine-exceptions": o.AllowEngineExceptions = true; break;
+                case "--atomtest-filter":          o.Filter = value; break;
+                case "--atomtest-diagnose":        o.Diagnose = true; break;
+            }
+        }
+        return o;
+    }
+
+    private static (string, string?) Split(string arg)
+    {
+        var i = arg.IndexOf('=');
+        return i < 0 ? (arg, null) : (arg[..i], arg[(i + 1)..]);
+    }
+
+    private static int ParseInt(string? s, int fallback) =>
+        int.TryParse(s, out var v) ? v : fallback;
+}
+
+/// <summary>
+/// Detects the one collision the shared AssemblyLoadContext can produce: two mods shipping
+/// different builds of the same library, where first-load silently wins.
+/// </summary>
+public static class AssemblyDiagnostics
+{
+    public static void WarnOnDuplicateSimpleNames()
+    {
+        var groups = AppDomain.CurrentDomain.GetAssemblies()
+            .GroupBy(a => a.GetName().Name)
+            .Where(g => g.Select(a => a.GetName().Version?.ToString() ?? "?").Distinct().Count() > 1);
+
+        foreach (var g in groups)
+        {
+            var detail = string.Join(", ", g.Select(a => $"{a.GetName().Version} <{Location(a)}>"));
+            Log.Warn($"assembly '{g.Key}' loaded more than once with differing versions: {detail}. "
+                   + "First load wins; the others are inert.");
+        }
+    }
+
+    private static string Location(Assembly a)
+    {
+        try { return string.IsNullOrEmpty(a.Location) ? "dynamic" : a.Location; }
+        catch { return "unknown"; }
+    }
+}
+
+/// <summary>
+/// All harness output. Machine-readable records are single-line JSON prefixed with a
+/// stable marker so a wrapper can extract them from godot.log without parsing prose.
+/// </summary>
+public static class Log
+{
+    public const string Marker = "##ATOMTEST##";
+
+    public static void Banner(string message) => GD.Print($"[{ModEntry.ModId}] === {message} ===");
+    public static void Info(string message)   => GD.Print($"[{ModEntry.ModId}] {message}");
+    public static void Warn(string message)   => GD.Print($"[{ModEntry.ModId}] WARNING: {message}");
+    public static void Error(string message)  => GD.PrintErr($"[{ModEntry.ModId}] ERROR: {message}");
+
+    public static void Event(string kind, Dictionary<string, object?> fields)
+    {
+        var sb = new StringBuilder(Marker).Append(" {\"event\":").Append(Json(kind));
+        foreach (var (k, v) in fields)
+        {
+            // "event" is the record kind. A field of the same name produces a duplicate key
+            // that a strict parser resolves by silently dropping one of them.
+            if (k == "event")
+            {
+                Warn($"ignoring a field named 'event' in a '{kind}' record; rename it");
+                continue;
+            }
+            sb.Append(',').Append(Json(k)).Append(':').Append(Json(v));
+        }
+        GD.Print(sb.Append('}').ToString());
+    }
+
+    private static string Json(object? value) => value switch
+    {
+        null        => "null",
+        bool b      => b ? "true" : "false",
+        int i       => i.ToString(),
+        long l      => l.ToString(),
+        double d    => d.ToString("R"),
+        float f     => f.ToString("R"),
+        _           => Quote(value.ToString() ?? ""),
+    };
+
+    private static string Quote(string s)
+    {
+        var sb = new StringBuilder("\"");
+        foreach (var c in s)
+            sb.Append(c switch
+            {
+                '"'  => "\\\"",
+                '\\' => "\\\\",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _    => c < ' ' ? $"\\u{(int)c:x4}" : c.ToString(),
+            });
+        return sb.Append('"').ToString();
+    }
+}
