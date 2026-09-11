@@ -128,7 +128,7 @@ watch_boot() {
     sleep 5; waited=$((waited + 5))
     log="$(godot_log 2>/dev/null || true)"
     [ -n "$log" ] && [ -f "$log" ] || continue
-    grep -qF '##ATOMTEST##' "$log" && return
+    grep -qaF '##ATOMTEST##' "$log" && return
   done
   echo "==> harness did not start within ${BOOT_TIMEOUT}s; killing run" >&2
   kill_game
@@ -159,9 +159,13 @@ set -e
 kill "$WATCHER" "$BOOT_WATCHER" 2>/dev/null || true
 sed 's/^/    /' "$OUT/run.log"
 
+# -a on every grep of godot.log below, without exception. The game writes bytes that make
+# GNU grep classify the log as binary, and a binary-mode grep writes nothing into a redirect
+# while still exiting 0. A run that passed 108 tests reported as a harness crash because of
+# it, since the records came out empty and the run_end check then failed.
 RECORDS="$OUT/results.jsonl"
 if [ -f "$OUT/godot.log" ]; then
-  grep -F '##ATOMTEST##' "$OUT/godot.log" | sed 's/^.*##ATOMTEST## //' >"$RECORDS" || true
+  grep -aF '##ATOMTEST##' "$OUT/godot.log" | sed 's/^.*##ATOMTEST## //' >"$RECORDS" || true
 else
   : >"$RECORDS"
 fi
@@ -175,15 +179,15 @@ elif ! grep -q '"event":"run_end"' "$RECORDS"; then
   echo "==> NO run_end RECORD: the harness did not complete (launch rc=$launch_rc)"
   # Distinguish "the harness ran and died" from "the harness never loaded", which is
   # usually an install problem rather than a test failure.
-  if [ -f "$OUT/godot.log" ] && ! grep -qF '##ATOMTEST##' "$OUT/godot.log"; then
+  if [ -f "$OUT/godot.log" ] && ! grep -qaF '##ATOMTEST##' "$OUT/godot.log"; then
     echo "==> the harness never initialized. Likely causes, in order:"
-    grep -qF 'the game needs to be patched' "$OUT/godot.log" \
+    grep -qaF 'the game needs to be patched' "$OUT/godot.log" \
       && echo "    - the game copy is not patched; re-run ./bootstrap.sh"
-    grep -qF 'Error initializing mod loader' "$OUT/godot.log" \
+    grep -qaF 'Error initializing mod loader' "$OUT/godot.log" \
       && echo "    - the mod loader failed against this game build (see godot.log for the type it could not load)"
-    grep -qF 'Modules to load: []' "$OUT/godot.log" \
+    grep -qaF 'Modules to load: []' "$OUT/godot.log" \
       && echo "    - no mod zip found under $INSTALL/Mods"
-    grep -qF 'Failed to get GodotPlugins initialization' "$OUT/godot.log" \
+    grep -qaF 'Failed to get GodotPlugins initialization' "$OUT/godot.log" \
       && echo "    - the .NET runtime did not start; check WINEDLLOVERRIDES (never disable mscoree)"
     echo "    full log: $OUT/godot.log"
   fi
