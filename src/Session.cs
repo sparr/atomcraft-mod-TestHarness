@@ -17,6 +17,13 @@ public static class Session
     /// <summary>World name used by the harness. Doubles as the worldgen seed.</summary>
     public const string WorldName = "TestHarnessFixture";
 
+    /// <summary>
+    /// The world currently entered, or the one last entered. Tests that switch worlds need
+    /// this: a mod carrying state from one world into another is a real bug, and a save
+    /// written under the wrong name is a confusing one.
+    /// </summary>
+    public static string CurrentWorldName { get; private set; } = WorldName;
+
     public static bool Active => Game.SessionActive;
 
     /// <summary>
@@ -27,11 +34,22 @@ public static class Session
     /// </summary>
     public static IEnumerator Enter(bool fresh) => Enter("flat", WorldMode.Creative, fresh);
 
+    /// <summary>
+    /// The signature as it stood before worldName was added. Kept as a real overload rather
+    /// than deleted: an optional parameter is a compile-time convenience, so adding one is a
+    /// binary breaking change, and a mod compiled against the older harness fails with
+    /// MissingMethodException rather than anything that names the problem.
+    /// </summary>
+    public static IEnumerator Enter(string fixture, WorldMode mode, bool fresh) =>
+        Enter(fixture, mode, fresh, worldName: null);
+
     public static IEnumerator Enter(string fixture = "flat", WorldMode mode = WorldMode.Creative,
-        bool fresh = true)
+        bool fresh = true, string? worldName = null)
     {
         if (Active)
             throw new AssertionException("already in a session; leave it before entering another");
+
+        CurrentWorldName = worldName ?? WorldName;
 
         // A world saved by an earlier run would be loaded instead of generated, so the
         // fixture would silently apply only the first time and every later run would test
@@ -42,7 +60,7 @@ public static class Session
 
         var world = new SaveData_World
         {
-            Name = WorldName,
+            Name = CurrentWorldName,
             PlanetTypeBaseName = "primora",
             Mode = mode,
             EnemySetting = WorldEnemySetting.None,
@@ -54,11 +72,11 @@ public static class Session
         // discovered planets, and player records the save wrote.
         if (!fresh)
         {
-            var saved = FileManager.GetWorlds()?.FirstOrDefault(w => w.Name == WorldName);
+            var saved = FileManager.GetWorlds()?.FirstOrDefault(w => w.Name == CurrentWorldName);
             if (saved != null)
                 world = saved;
             else
-                Log.Warn($"no saved world '{WorldName}' to reload; generating a fresh one");
+                Log.Warn($"no saved world '{CurrentWorldName}' to reload; generating a fresh one");
         }
 
         Log.Info($"entering fixture world '{fixture}' in {mode} mode (fresh: {fresh})");
@@ -76,6 +94,7 @@ public static class Session
         Log.Event("session", new()
         {
             ["phase"] = "entered",
+            ["world"] = CurrentWorldName,
             ["fixture"] = fixture,
             ["mode"] = mode.ToString(),
             ["tick"] = Simulation.CurrentState?.Tick ?? -1,
@@ -238,7 +257,7 @@ public static class Session
         ForgetCachedUniverse();
 
         var before = UniverseLoads;
-        yield return Enter(fixture, mode, fresh: false);
+        yield return Enter(fixture, mode, fresh: false, worldName: CurrentWorldName);
 
         if (UniverseLoads == before)
             throw new AssertionException(

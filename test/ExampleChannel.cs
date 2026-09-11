@@ -38,6 +38,10 @@ public static class ExampleChannel
                 for (var dx = 0; dx < w; dx++)
                     _store.Remove(Key(x + dx, y + dy));
             },
+            // World-scoped: a world ending must drop it, or the next world inherits values
+            // sitting on whatever pixels happen to occupy those coordinates. The load hook is
+            // not a substitute, since it only runs when a universe file is actually read.
+            ClearWorld = () => _store.Clear(),
             Format = v => v.ToString(),
         });
     }

@@ -277,7 +277,13 @@ FieldRegistry.Register(new FieldSpec<int>
     Unset = 0,
     Read  = (x, y) => Store.TryGetValue((x, y), out var v) ? v : 0,
     Write = (x, y, v) => Store[(x, y)] = v,
-    Clear = (x, y, w, h) => { /* required: per-test isolation depends on it */ },
+    Clear = (x, y, w, h) => { /* per-test isolation depends on it */ },
+
+    // Called when a world ends and between tests. Supply it for anything world-scoped:
+    // without it the next world inherits this world's values, sitting on whatever pixels
+    // happen to occupy those coordinates. A load hook is not a substitute, since it only
+    // runs when a save file is actually read.
+    ClearWorld = () => Store.Clear(),
 });
 ```
 
@@ -289,11 +295,50 @@ pressure.AssertNoneSet();
 pressure.CountSet();
 ```
 
-Implement `ClearEverything()` on a spec if the channel keeps anything outside the region a
-test is handed, such as a running total or a dirty list; it is called between tests and
-defaults to a no-op. `ChecksumRect` has a working default and exists so mod channels take
-part in `--determinism`, which is where order-dependence in a mod's own parallel work would
-otherwise be invisible.
+Every channel must be able to clear itself, either with its own `Clear` or by belonging to a
+`FieldGroup`; a registration with neither is refused, because a channel that resets nothing
+leaks into every later test. `ChecksumRect` has a working default and exists so mod channels
+take part in `--determinism`, which is where order-dependence in a mod's own parallel work
+would otherwise be invisible.
+
+If several channels are views of one store, name the storage once and they clear together
+instead of each re-clearing what the last one did. A derived, read-only view can then
+honestly own nothing:
+
+```csharp
+var store = new FieldGroup
+{
+    Name = "mymod.store",
+    ClearRect = (x, y, w, h) => Store.ClearRect(x, y, w, h),
+    ClearEverything = () => Store.Clear(),
+};
+
+FieldRegistry.Register(new FieldSpec<int> { Name = "mymod.effective", Group = store, /* ... */ });
+```
+
+Supply `Checksum` on a spec if walking the rectangle cell by cell is too slow. Thirteen
+channels over a one-chunk region is thirteen passes over 192x192 cells through a delegate; a
+mod with a flat backing array can answer from the array instead.
+
+### State that is not per-cell
+
+A config flag, an inventory, a running total, a cache keyed by something other than position:
+no rectangle describes it, so `FieldRegistry` cannot model it and nothing would clear it
+between tests.
+
+```csharp
+StateRegistry.Register(new StateSpec
+{
+    Name       = "mymod.config",
+    OnReset    = MyConfig.Reset,              // required: back to a clean, usable slate
+    OnChecksum = () => MyTotals.Hash(),       // optional: take part in --determinism
+});
+```
+
+`Reset` means usable, not empty: leave a table loaded once from JSON at startup in place,
+since a mod generally cannot reload it mid-run. Supply `OnChecksum` for anything the
+simulation writes to and omit it for startup configuration. `[GameTest(ResetModState = false)]`
+opts a test out of both registries together.
 
 The game's own `core.material`, `core.heat`, and `core.charge` register through the same
 call, so there is no privileged path. (`core.charge` is registered for completeness but the
@@ -311,10 +356,21 @@ TickRegistry.Register(new TickSpec
 {
     Name = "mymod.pressure",
     Step = (window, tick) => MyPass.Run(Simulation.CurrentState.Field, tick, window),
+
+    // Before or after the game's quadrant passes. Default is after.
+    When = TickPhase.BeforeSimulation,
 });
 ```
 
-The window is the region's own rectangle, and honouring it matters: a pass that works
+Which phase you need decides how your mod interacts with gravity, so it is worth choosing
+rather than inheriting. `BeforeSimulation` runs where `Simulation.FlagActiveChunks` sits in
+the real game: after the updated-this-tick flags are cleared and before anything moves, so a
+pass can move a cell and claim it with `SetUpdatedWithinCurrentTick` and the vanilla passes
+will leave it alone. `AfterSimulation`, the default, sees where the game left everything,
+which means gravity has already decided every contest: a pixel pushed up out of a vent is
+pulled back down before the pixel behind it can follow.
+
+The window is the region's own rectangle, and honoring it matters: a pass that works
 world-wide inside a bounded test pushes cells into the spacing margin, where the next test
 to use that band finds them. Session tests need none of this, since `WorldTicks` drives the
 game's own `DoSimTick`.
@@ -324,6 +380,22 @@ game's own `DoSimTick`.
 Persisting per-cell data means implementing the loader's `OnUniverseSave` and
 `OnUniverseLoad`, whose failure mode is quiet: the mod keeps working, the world keeps
 loading, and the state is simply gone or subtly wrong.
+
+Worth knowing what the helper is fighting. `FileManager` caches the universe it last loaded,
+so saving and re-entering the same world in one process returns the object already in memory
+and never reads the file, which means `OnUniverseLoad` never runs. `Session.SaveAndReload`
+clears that cache and then fails if no file was actually read, so a passing assertion here is
+about persistence rather than about memory. `Session.UniverseLoads` counts real reads if you
+want to assert on it yourself.
+
+Two things a single world's round trip cannot tell you, so test them separately:
+
+- **State is replaced, not merged.** `Persistence.AssertFieldIsReplacedOnLoad` covers a load
+  hook that restores on top of what was already there.
+- **State does not outlive its world.** Leaving one world and starting a freshly generated
+  one never calls the load hook at all, so a mod that only clears on load carries the old
+  world's values into the new one. The harness resets registered channels and state when a
+  world ends; anything you keep outside those registries is your own to clear.
 
 ```csharp
 [GameTest]
@@ -356,6 +428,29 @@ you want a worked example of the save hooks. It is also built exactly as a consu
 theirs: a separate mod with its own id and zip, a dependency on `TestHarness/Main`, a version
 check in `Initialize`, and the harness resolved through `TestHarnessDir` rather than a
 project reference. If that path breaks, it breaks there first.
+
+## Validating your mod
+
+Generic checks for the mistakes that produce no error at load and no crash, just a mod that
+quietly does less than it says: a material field naming a material that does not exist, a
+manifest data path matching nothing in the zip, an unregistered `ColorDelegate`, a missing
+translation, a craftable in no category.
+
+```csharp
+[GameTest]
+public static void ModIsWellFormed() => Validation.Check("MyMod");
+```
+
+Errors fail the check, warnings log, and lint is silent unless you ask for it with
+`Validation.Check("MyMod", Severity.Lint)`. Lint exists for the two rules that cannot tell a
+deliberate choice from a mistake, mutable instance fields on a `BaseMaterial` subclass and a
+declared `Reaction.MaxTemperature`; both flag correct code often enough that failing on them
+would get the whole thing switched off. Individual rules can be suppressed by passing them.
+
+Checks read your mod's own zip rather than the live registries, so `Validation.InspectZip(path)`
+works on a mod that fails to load, or that kills the game at load, which is when it is worth
+the most. Nothing vanilla is ever inspected: the game violates several of these rules itself
+and a report you can do nothing about is a report nobody reads.
 
 ## Diagnostics
 

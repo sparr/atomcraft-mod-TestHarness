@@ -25,9 +25,24 @@ public static class ModEntry
         return saved;
     }
 
+    /// <summary>
+    /// How many times the mod loader has invoked this mod's load hook.
+    ///
+    /// The hook firing at all is the thing worth asserting. It hangs off
+    /// FileManager.TryLoadUniverseFile, which a re-entry skips entirely when the universe is
+    /// still cached, so for a long time it never ran and every persistence assertion in this
+    /// suite passed on state that had not left memory.
+    /// </summary>
+    public static int LoadHookCalls { get; private set; }
+
+    /// <summary>The payload the loader handed back on the most recent load.</summary>
+    public static Dictionary<string, int>? LastLoadPayload { get; private set; }
+
     /// <summary>Called by the mod loader when a universe is loaded, with what was stored.</summary>
     public static void OnUniverseLoad(Dictionary<string, int> saved)
     {
+        LoadHookCalls++;
+        LastLoadPayload = saved;
         ExampleChannel.Load(saved);
         Log.Info($"restored {saved?.Count ?? 0} cell(s) of {ExampleChannel.Name}");
     }

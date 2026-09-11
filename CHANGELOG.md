@@ -5,6 +5,49 @@ between minor versions and are listed first in each entry. Consumers should call
 `Harness.RequireVersion("0.2")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
 
+## Unreleased
+
+Driven by a second round of the Pressure mod's needs document, and by testing the harness
+against the other mods in the AtomcraftMods repository.
+
+**Breaking:** `Severity` gains a `Lint` member, and `FieldSpec<T>.Clear` is no longer a
+required property, so a channel that supplies neither `Clear` nor `Group` is now refused at
+registration rather than at compile time.
+
+### Fixed
+
+- **A save and reload never reloaded.** `FileManager` caches the universe it last loaded and
+  returns it whenever the world name matches, so re-entering the same world in one process
+  handed back the object already in memory, never read the save file, and never ran the mod
+  loader's `OnUniverseLoad`. Every assertion about persistence passed on state that had not
+  left memory: a full run showed 22 saves and 0 loads. `Session.SaveAndReload` now clears
+  that cache and fails if the re-entry did not actually read a file.
+- **`FieldSpec<T>` could not supply `ClearEverything`.** The interface declared it; the class
+  every mod registers through exposed no way to provide it, so the world-scoped reset was a
+  silent no-op for such a channel. New `ClearWorld` property.
+- **Registered state now resets when a world ends**, via `Simulation.Reset`. `OnUniverseLoad`
+  is not a substitute: it runs only when a universe file is actually read, so starting a
+  freshly generated world would otherwise inherit the previous world's state.
+- `FieldRegistry` gains the `Unregister` the other two registries always had.
+
+### Added
+
+- **Validation**, nine generic rules for mistakes that produce no error at load and no crash.
+  `Validation.Check(modId)` fails on errors, logs warnings, and stays silent about lint
+  unless asked. Found the cause of a boot crash in another mod on first use.
+- **`StateRegistry`**, for mod state that no rectangle describes: a config flag, an inventory,
+  a running total. `ResetModState` covers it, and it can opt into determinism comparisons.
+- **`TickSpec.When`**, choosing whether a per-tick pass runs before or after the quadrant
+  passes. Before is where `FlagActiveChunks` sits in the real game, which is how a mod's own
+  movement takes precedence over gravity.
+- **`FieldGroup`**, so channels that are views of one store clear once rather than once each,
+  and a read-only view no longer has to nominate a `Clear` for storage it does not own.
+- **`FieldSpec<T>.Checksum`**, an optional bulk hook so a flat-array mod is not charged a
+  per-cell delegate call per channel for determinism.
+- `Region.ConveyInto`, the only way to reach a material's `OnImpact`.
+- `Session.Enter(..., worldName:)` and `Session.UniverseLoads`, for tests that switch worlds
+  or need to prove a load happened.
+
 ## 0.2.1
 
 Tooling and documentation only. The harness API is unchanged, so `RequireVersion("0.2")`

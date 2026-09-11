@@ -124,6 +124,18 @@ public sealed class FieldSpec<T> : IFieldSpec
     public FieldGroup? Group { get; init; }
 
     /// <summary>
+    /// Clears everything this channel holds anywhere in the world, plus any world-level
+    /// aggregate. Supplies <see cref="IFieldSpec.ClearEverything"/>, which the interface
+    /// declares but this class previously gave no way to provide, so a channel registered
+    /// through FieldSpec could not be reset world-wide at all.
+    ///
+    /// Worth supplying for any channel whose state is world-scoped. Without it a channel
+    /// keeps whatever it held when a world ended, and the next world inherits it sitting on
+    /// whatever pixels happen to occupy those coordinates.
+    /// </summary>
+    public Action? ClearWorld { get; init; }
+
+    /// <summary>
     /// Optional fast path for determinism checksums. The default walks the rectangle cell by
     /// cell through Read, which is the only thing that works for every storage shape and the
     /// wrong thing for a mod with a flat backing array and a lot of channels: thirteen
@@ -161,6 +173,14 @@ public sealed class FieldSpec<T> : IFieldSpec
             Clear(worldX, worldY, width, height);
         else
             Group?.ClearRect(worldX, worldY, width, height);
+    }
+
+    public void ClearEverything()
+    {
+        if (ClearWorld != null)
+            ClearWorld();
+        else
+            Group?.ClearEverything?.Invoke();
     }
 
     public int ChecksumRect(int worldX, int worldY, int width, int height)
