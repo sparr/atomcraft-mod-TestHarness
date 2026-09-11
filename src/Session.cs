@@ -228,8 +228,53 @@ public static class Session
     {
         Save(incremental);
         yield return Leave();
+
+        // Without this the re-entry never touches the save file. FileManager caches the
+        // universe it last loaded and GetOrLoadUniverseForWorld returns it whenever the name
+        // matches, so re-entering the same world in one process hands back the object already
+        // in memory. TryLoadUniverseFile is never called, which is the method the mod loader
+        // hangs OnUniverseLoad on, so a mod's load hook never runs and every assertion about
+        // persistence passes on state that never left memory.
+        ForgetCachedUniverse();
+
+        var before = UniverseLoads;
         yield return Enter(fixture, mode, fresh: false);
-        Log.Event("session", new() { ["phase"] = "reloaded" });
+
+        if (UniverseLoads == before)
+            throw new AssertionException(
+                "re-entering the world did not read the save file, so nothing here would be " +
+                "testing persistence. FileManager's universe cache was cleared before the " +
+                "re-entry, so this means the load path changed shape.");
+
+        Log.Event("session", new() { ["phase"] = "reloaded", ["loads"] = UniverseLoads });
+    }
+
+    /// <summary>
+    /// How many times the game has actually read a universe from disk this run.
+    ///
+    /// Exists so a save-and-reload can prove it reloaded. Nothing else distinguishes a round
+    /// trip through the file from a round trip through a cached object, and the two look
+    /// identical to every assertion a test could make about the result.
+    /// </summary>
+    public static int UniverseLoads { get; private set; }
+
+    internal static void RecordUniverseLoad() => UniverseLoads++;
+
+    /// <summary>
+    /// Drops FileManager's in-memory universe cache, so the next entry reads from disk.
+    ///
+    /// Reflection because the field is private and the only vanilla code that clears it sits
+    /// inside a delete-the-world flow.
+    /// </summary>
+    public static void ForgetCachedUniverse()
+    {
+        var field = typeof(FileManager).GetField("ActiveUniverse",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+            ?? throw new AssertionException(
+                "FileManager.ActiveUniverse is gone, so the universe cache cannot be cleared " +
+                "and save-and-reload would silently stop testing persistence.");
+
+        field.SetValue(null, null);
     }
 
     /// <summary>

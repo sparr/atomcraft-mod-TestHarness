@@ -506,6 +506,12 @@ public sealed class Region
         {
             ClearUpdateFlags();
 
+            // Where Simulation.FlagActiveChunks sits: after the flags are cleared, before
+            // anything moves. A pass here can claim a cell with SetUpdatedWithinCurrentTick
+            // and the vanilla passes will leave it alone, which is how a mod makes its own
+            // movement beat gravity.
+            TickRegistry.StepAll(window, Tick, TickPhase.BeforeSimulation);
+
             // Mirrors Simulation.Step: one quadrant index at a time across every chunk,
             // with each chunk split into four 32x32 quadrants. Vanilla runs the chunks in
             // parallel; running them in order here is what makes a test reproducible.
@@ -521,9 +527,9 @@ public sealed class Region
                     window, order, Tick % 4);
             }
 
-            // Mod passes run after the game's quadrant passes and before heat is pinned
+            // The other phase: after the game's quadrant passes and before heat is pinned
             // again, bounded to this region so a pass cannot act outside the test's world.
-            TickRegistry.StepAll(window, Tick);
+            TickRegistry.StepAll(window, Tick, TickPhase.AfterSimulation);
 
             if (PinnedHeat is short kelvin)
                 FillHeat(kelvin);

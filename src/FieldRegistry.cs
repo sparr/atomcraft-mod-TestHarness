@@ -10,9 +10,41 @@ namespace Atomcraft.TestHarness;
 /// sparse, addressed by coordinate. A dictionary, a per-chunk map, a run-length store, and
 /// a flat array all satisfy this identically, and the harness never learns which.
 /// </summary>
+/// <summary>
+/// Storage shared by several channels, cleared once for all of them.
+///
+/// Channels are the unit a test thinks in, but they are often not the unit a mod stores. A mod
+/// may register a stored value, a derived view of it, and a per-direction breakdown of the same
+/// array, and clearing each independently re-clears what the previous call already did. Worse,
+/// a derived channel has to nominate a Clear for storage it does not own, which is a small lie
+/// in the registration.
+///
+/// Naming the shared storage once removes both problems: the group clears, the channels that
+/// belong to it do not, and a read-only view can honestly say it owns nothing.
+/// </summary>
+public sealed class FieldGroup
+{
+    public required string Name { get; init; }
+
+    /// <summary>Clears the whole group's storage over a rectangle, in one pass.</summary>
+    public required Action<int, int, int, int> ClearRect { get; init; }
+
+    /// <summary>
+    /// Clears everything the group holds anywhere, plus any world-level aggregate that goes
+    /// with it. Same reasoning as IFieldSpec.ClearEverything, at group scope.
+    /// </summary>
+    public Action? ClearEverything { get; init; }
+}
+
 public interface IFieldSpec
 {
     string Name { get; }
+
+    /// <summary>
+    /// Shared storage this channel is a view of, or null when it owns its own. A channel in a
+    /// group is not cleared individually; its group is.
+    /// </summary>
+    FieldGroup? Group => null;
 
     /// <summary>Rendered value at a world cell, for dumps and failure messages.</summary>
     string FormatAt(int worldX, int worldY);
@@ -58,6 +90,18 @@ public interface IFieldSpec
     }
 }
 
+internal static class FieldSpecChecks
+{
+    /// <summary>
+    /// True when a spec has no way to clear a rectangle. Only FieldSpec&lt;T&gt; can be in this
+    /// state; a hand-written IFieldSpec must implement ClearRect to compile at all.
+    /// </summary>
+    public static bool ClearsNothing(this IFieldSpec spec) =>
+        spec.GetType().GetProperty("Clear")?.GetValue(spec) == null
+        && spec.GetType().IsGenericType
+        && spec.GetType().GetGenericTypeDefinition() == typeof(FieldSpec<>);
+}
+
 /// <summary>A registered channel of <typeparamref name="T"/> per cell.</summary>
 public sealed class FieldSpec<T> : IFieldSpec
 {
@@ -69,8 +113,23 @@ public sealed class FieldSpec<T> : IFieldSpec
     /// <summary>Optional: tests that only observe a field do not need it writable.</summary>
     public Action<int, int, T>? Write { get; init; }
 
-    /// <summary>Clears a rectangle. Required, for the isolation reason above.</summary>
-    public required Action<int, int, int, int> Clear { get; init; }
+    /// <summary>
+    /// Clears a rectangle. Required unless this channel belongs to a <see cref="Group"/>,
+    /// which clears on its behalf. One or the other must be present: a channel that clears
+    /// nothing leaks state into the next test.
+    /// </summary>
+    public Action<int, int, int, int>? Clear { get; init; }
+
+    /// <summary>Shared storage this channel is a view of. See <see cref="FieldGroup"/>.</summary>
+    public FieldGroup? Group { get; init; }
+
+    /// <summary>
+    /// Optional fast path for determinism checksums. The default walks the rectangle cell by
+    /// cell through Read, which is the only thing that works for every storage shape and the
+    /// wrong thing for a mod with a flat backing array and a lot of channels: thirteen
+    /// channels over a one-chunk region is thirteen passes over 192x192 cells.
+    /// </summary>
+    public Func<int, int, int, int, int>? Checksum { get; init; }
 
     /// <summary>The "nothing here" value. Sparse stores need one; flat arrays usually have a natural zero.</summary>
     public T Unset { get; init; } = default!;
@@ -96,8 +155,25 @@ public sealed class FieldSpec<T> : IFieldSpec
     public bool IsUnsetAt(int worldX, int worldY) =>
         EqualityComparer<T>.Default.Equals(Read(worldX, worldY), Unset);
 
-    public void ClearRect(int worldX, int worldY, int width, int height) =>
-        Clear(worldX, worldY, width, height);
+    public void ClearRect(int worldX, int worldY, int width, int height)
+    {
+        if (Clear != null)
+            Clear(worldX, worldY, width, height);
+        else
+            Group?.ClearRect(worldX, worldY, width, height);
+    }
+
+    public int ChecksumRect(int worldX, int worldY, int width, int height)
+    {
+        if (Checksum != null)
+            return Checksum(worldX, worldY, width, height);
+
+        var sum = 0;
+        for (var y = worldY; y < worldY + height; y++)
+        for (var x = worldX; x < worldX + width; x++)
+            sum = sum * 257 + (IsUnsetAt(x, y) ? 0 : FormatAt(x, y).GetHashCode());
+        return sum;
+    }
 }
 
 /// <summary>
@@ -115,6 +191,15 @@ public static class FieldRegistry
 
     public static void Register(IFieldSpec spec)
     {
+        // Clear used to be a required init property, so the compiler enforced this. A channel
+        // may now delegate to a group instead, which means the check moves to run time; a
+        // channel that clears neither way would leak state into every later test.
+        if (spec is { Group: null } && spec.ClearsNothing())
+            throw new AssertionException(
+                $"field '{spec.Name}' supplies neither Clear nor Group, so nothing would reset " +
+                "it between tests. Give it a Clear, or put it in a FieldGroup with the other " +
+                "channels that share its storage.");
+
         lock (Lock)
         {
             if (Specs.ContainsKey(spec.Name))
@@ -122,6 +207,19 @@ public static class FieldRegistry
             Specs[spec.Name] = spec;
         }
         Log.Info($"registered field '{spec.Name}'");
+    }
+
+    /// <summary>
+    /// Drops a registration. A mod registers once at load and never needs this; a test that
+    /// registers a channel of its own does, because anything left behind is cleared and
+    /// checksummed for every test that follows.
+    ///
+    /// The other two registries have had this since they were written. This one did not,
+    /// which made a channel registered by a test permanent.
+    /// </summary>
+    public static bool Unregister(string name)
+    {
+        lock (Lock) return Specs.Remove(name);
     }
 
     public static IFieldSpec Get(string name)
@@ -144,11 +242,29 @@ public static class FieldRegistry
         get { lock (Lock) return Specs.Values.ToList(); }
     }
 
-    /// <summary>Clears every registered channel over a rectangle, vanilla and mod alike.</summary>
+    /// <summary>
+    /// Clears every registered channel over a rectangle, vanilla and mod alike.
+    ///
+    /// Grouped channels clear once per group rather than once per channel, which is the
+    /// difference between one pass and thirteen for a mod whose channels are views of the
+    /// same storage.
+    /// </summary>
     public static void ClearAll(int worldX, int worldY, int width, int height)
     {
+        var groups = new HashSet<FieldGroup>();
+
         foreach (var spec in All)
-            spec.ClearRect(worldX, worldY, width, height);
+        {
+            if (spec.Group is FieldGroup group)
+            {
+                if (groups.Add(group))
+                    group.ClearRect(worldX, worldY, width, height);
+            }
+            else
+            {
+                spec.ClearRect(worldX, worldY, width, height);
+            }
+        }
     }
 
     /// <summary>
@@ -166,8 +282,20 @@ public static class FieldRegistry
     /// <summary>Resets every registered channel completely. Called between tests.</summary>
     public static void ResetAll()
     {
+        var groups = new HashSet<FieldGroup>();
+
         foreach (var spec in All)
-            spec.ClearEverything();
+        {
+            if (spec.Group is FieldGroup group)
+            {
+                if (groups.Add(group))
+                    group.ClearEverything?.Invoke();
+            }
+            else
+            {
+                spec.ClearEverything();
+            }
+        }
     }
 
     /// <summary>Registers the game's own three per-cell channels through the public path.</summary>
