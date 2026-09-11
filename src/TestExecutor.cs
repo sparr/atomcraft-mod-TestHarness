@@ -54,9 +54,31 @@ public static class TestExecutor
         EnsureGameReady();
 
         var all = TestDiscovery.Discover(null);
-        _queue = all.Where(t => t.Matches(filter)).ToList();
         _index = 0;
         _passed = _failed = _skipped = 0;
+
+        // A pattern that will not compile is reported rather than thrown: it is a usage
+        // mistake, and a stack trace out of the runner would look like the harness breaking.
+        System.Text.RegularExpressions.Regex? pattern = null;
+        if (filter != null)
+        {
+            try
+            {
+                pattern = TestCase.Compile(filter);
+            }
+            catch (ArgumentException e)
+            {
+                _queue = new List<TestCase>();
+                _selectionError =
+                    $"the filter '{filter}' is not a valid regular expression: {e.Message.Trim()}";
+                Artifacts.Reset();
+                Log.Event("run_start", new() { ["tests"] = 0, ["discovered"] = all.Count, ["filter"] = filter });
+                Log.Error(_selectionError);
+                return;
+            }
+        }
+
+        _queue = all.Where(t => t.Matches(pattern)).ToList();
         _selectionError = SelectionError(filter, all.Count, _queue.Count);
 
         // Before any test runs, so nothing left by the previous run can be mistaken for
@@ -98,9 +120,9 @@ public static class TestExecutor
             return $"no tests were selected out of {discovered} discovered, with no filter set.";
 
         return $"the filter '{filter}' matched none of the {discovered} discovered tests, so " +
-               "this run tested nothing. The filter is a case-insensitive substring of the " +
-               "full test name, not a regular expression: 'A|B' matches a test whose name " +
-               "literally contains \"A|B\". Run without a filter to see the names.";
+               "this run tested nothing. The filter is a case-insensitive, unanchored regular " +
+               "expression over the full test name, so a plain word selects every name " +
+               "containing it. Run without a filter to see the names.";
     }
 
     /// <summary>

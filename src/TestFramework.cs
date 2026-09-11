@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Atomcraft.TestHarness;
 
@@ -85,11 +86,26 @@ public sealed class TestCase
     public string Name => $"{Method.DeclaringType?.Assembly.GetName().Name}.{Method.DeclaringType?.Name}.{Method.Name}";
 
     /// <summary>
-    /// Whether this test is selected by a filter. Substring, case-insensitive, and
-    /// deliberately not a regex: a name is matched, not a pattern.
+    /// Whether this test is selected by a filter: a case-insensitive, unanchored regular
+    /// expression over the full, assembly-qualified name.
+    ///
+    /// Unanchored on purpose, which makes this a superset of the substring matching it
+    /// replaced: a plain word still selects every name containing it, so existing filters keep
+    /// working. Only a filter using regex metacharacters literally changes meaning, and the
+    /// one that appears in every test name, the dot, matches itself.
     /// </summary>
     public bool Matches(string? filter) =>
-        filter == null || Name.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        filter == null || Matches(Compile(filter));
+
+    public bool Matches(Regex? filter) => filter == null || filter.IsMatch(Name);
+
+    /// <summary>
+    /// Compiles a filter, or explains why it will not compile. The caller decides what an
+    /// unusable pattern means; discovery must not swallow it, since a filter nobody can parse
+    /// would otherwise select everything or nothing without saying so.
+    /// </summary>
+    public static Regex Compile(string filter) =>
+        new(filter, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The assembly this test came from, for the version refusal check.</summary>
     public string? AssemblyName => Method.DeclaringType?.Assembly.GetName().Name;

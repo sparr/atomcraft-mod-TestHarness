@@ -19,8 +19,8 @@ public static class SelectionTests
             throw new AssertionException(
                 "a filter that matched none of 114 tests should be an error, not a clean run");
 
-        // The message has to say why, or the reader retries the same regex.
-        foreach (var expected in new[] { "Registration|ResidueHunt", "substring", "not a regular expression" })
+        // The message has to say why, or the reader retries the same pattern blind.
+        foreach (var expected in new[] { "Registration|ResidueHunt", "regular expression", "unanchored" })
             if (!error.Contains(expected))
                 throw new AssertionException(
                     $"the message should mention '{expected}'. Got: {error}");
@@ -51,14 +51,14 @@ public static class SelectionTests
     }
 
     /// <summary>
-    /// The filter is a substring of the full, assembly-qualified name, which is the behavior
-    /// the error message promises.
+    /// The filter is an unanchored, case-insensitive regex over the full, assembly-qualified
+    /// name, which is what the error message promises.
     /// </summary>
     [GameTest]
-    public static void TheFilterIsACaseInsensitiveSubstringOfTheFullName()
+    public static void TheFilterIsACaseInsensitiveUnanchoredRegex()
     {
         var test = TestDiscovery.Discover(null)
-            .FirstOrDefault(t => t.Name.EndsWith(nameof(TheFilterIsACaseInsensitiveSubstringOfTheFullName)));
+            .FirstOrDefault(t => t.Name.EndsWith(nameof(TheFilterIsACaseInsensitiveUnanchoredRegex)));
 
         if (test == null)
             throw new AssertionException("could not find this test in discovery");
@@ -69,9 +69,56 @@ public static class SelectionTests
         if (!test.Matches("TestHarness.Test.SelectionTests"))
             throw new AssertionException("the assembly-qualified prefix should match");
 
-        if (test.Matches("SelectionTests|Nothing"))
-            throw new AssertionException(
-                "alternation should not match: the filter is a substring, and a test claiming " +
-                "otherwise would make the error message a lie");
+        // The reason regex was worth doing, and the case that silently ran nothing before.
+        if (!test.Matches("SelectionTests|NoSuchThing"))
+            throw new AssertionException("alternation should select this test");
+
+        if (!test.Matches("Unanchored.*Regex"))
+            throw new AssertionException("a pattern with metacharacters should work");
+
+        if (!test.Matches("^TestHarness\\.Test"))
+            throw new AssertionException("anchoring should be available when asked for");
+
+        if (test.Matches("NoTestIsNamedThis"))
+            throw new AssertionException("a pattern matching nothing should select nothing");
+    }
+
+    /// <summary>
+    /// Every filter that worked as a substring still works, since the match is unanchored.
+    /// This is what makes the change safe for anyone already passing one.
+    /// </summary>
+    [GameTest]
+    public static void PlainSubstringFiltersStillWork()
+    {
+        var names = TestDiscovery.Discover(null);
+
+        foreach (var plain in new[] { "Vanilla", "Session", "Artifact" })
+        {
+            var byRegex = names.Count(t => t.Matches(plain));
+            var bySubstring = names.Count(t => t.Name.Contains(plain, StringComparison.OrdinalIgnoreCase));
+
+            if (byRegex != bySubstring)
+                throw new AssertionException(
+                    $"'{plain}' selected {byRegex} as a regex and {bySubstring} as a substring; " +
+                    "a plain word must keep meaning what it meant");
+        }
+    }
+
+    /// <summary>
+    /// A pattern that will not compile is a usage mistake, reported the same way as one that
+    /// matches nothing rather than thrown out of the runner as though the harness broke.
+    /// </summary>
+    [GameTest]
+    public static void AnInvalidPatternIsReportedNotThrown()
+    {
+        try
+        {
+            TestCase.Compile("Unclosed(");
+            throw new AssertionException("'Unclosed(' should not have compiled");
+        }
+        catch (ArgumentException)
+        {
+            // expected; TestExecutor.Begin turns this into a selection error
+        }
     }
 }

@@ -32,10 +32,17 @@ registration rather than at compile time.
 
 ### Fixed
 
-- **A run that selected no tests reported success.** `--atomtest-filter` is a substring match,
-  so a filter written as a regex matched nothing, ran zero tests, and exited 0, which is
-  indistinguishable from everything passing. Selecting no tests now fails the run, with a
-  message naming the filter and stating the matching rule. Reported by the Pressure mod.
+- **A run that selected no tests reported success.** A filter matching nothing ran zero tests
+  and exited 0, which is indistinguishable from everything passing. Selecting no tests, or a
+  filter that will not compile, now fails the run with a message naming the filter and the
+  matching rule. Reported by the Pressure mod.
+
+### Changed
+
+- **`--atomtest-filter` is a regular expression**, case-insensitive and unanchored, rather
+  than a substring. Unanchored makes it a superset: a plain word selects every name containing
+  it exactly as before, so existing filters are unaffected, while `Session|Artifact` now does
+  what it looks like it does.
 - **A passing run could report as a harness crash.** `run-tests.sh` extracted results by
   grepping `godot.log` without `-a`. The game writes bytes that make GNU grep classify that
   log as binary, and a binary-mode grep writes nothing into a redirect while still exiting 0,
