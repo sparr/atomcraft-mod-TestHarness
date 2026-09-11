@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <!-- Where the game is installed. No default: installs differ by store, platform, and
+         user. Supplied by run-tests.sh from GAME_DIR in atomcraft-test.conf, or set
+         explicitly with -p:GameInstallDir=... MSBuild also picks this up from the
+         environment automatically. -->
+    <GameDataDir Condition="'$(GameInstallDir)' != ''">$(GameInstallDir)/data_Atomcraft_windows_x86_64</GameDataDir>
+    <ModId>TestHarness</ModId>
+  </PropertyGroup>
+
+  <Target Name="RequireGameInstallDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(GameInstallDir)' == ''"
+           Text="GameInstallDir is not set. Building the harness needs the game's reference assemblies. Set GAME_DIR in atomcraft-test.conf (see atomcraft-test.conf.example) and build through ./run-tests.sh, or pass -p:GameInstallDir=/path/to/Atomcraft." />
+    <Error Condition="'$(GameInstallDir)' != '' AND !Exists('$(GameDataDir)/Atomcraft.dll')"
+           Text="No Atomcraft.dll under $(GameDataDir). Check GameInstallDir=$(GameInstallDir)." />
+  </Target>
+</Project>

@@ -1,0 +1,14 @@
+{
+  "id": "TestHarness",
+  "name": "Atomcraft Test Harness",
+  "description": "In-game automated test harness for Atomcraft mods. Install only when running tests.",
+  "author": "sparr",
+  "version": "0.1.0",
+  "modules": [
+    {
+      "moduleId": "TestHarness/Main",
+      "dll": "Atomcraft.TestHarness.dll",
+      "initClass": "Atomcraft.TestHarness.ModEntry"
+    }
+  ]
+}

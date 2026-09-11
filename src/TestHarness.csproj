@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Atomcraft.TestHarness</AssemblyName>
+    <RootNamespace>Atomcraft.TestHarness</RootNamespace>
+    <Version>0.1.0</Version>
+    <!-- Published for other modders; the API is public and explicitly unstable through 0.x. -->
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Never copy game assemblies next to the mod DLL. -->
+    <Reference Include="Atomcraft">
+      <HintPath>$(GameDataDir)/Atomcraft.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>$(GameDataDir)/GodotSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Harmony is bundled by the mod loader; never ship 0Harmony.dll. -->
+    <PackageReference Include="Lib.Harmony" Version="2.4.2">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Stage <ModId>/... and zip it, matching the layout the loader requires. -->
+  <Target Name="CreateModZip" AfterTargets="Build">
+    <PropertyGroup>
+      <StageDir>$(MSBuildThisFileDirectory)../build/stage/$(ModId)</StageDir>
+      <ZipPath>$(MSBuildThisFileDirectory)../build/$(ModId).zip</ZipPath>
+    </PropertyGroup>
+    <RemoveDir Directories="$(MSBuildThisFileDirectory)../build/stage" />
+    <MakeDir Directories="$(StageDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(StageDir)" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)../mod.json" DestinationFolder="$(StageDir)" />
+    <Delete Files="$(ZipPath)" />
+    <ZipDirectory SourceDirectory="$(MSBuildThisFileDirectory)../build/stage" DestinationFile="$(ZipPath)" />
+    <Message Importance="high" Text="mod zip: $(ZipPath)" />
+  </Target>
+
+  <!-- Consumers reference the harness assembly from a stable path rather than from a
+       build output directory whose name depends on configuration. run-tests.sh and
+       build-mod.sh both point TestHarnessDir here. A published release zip serves the same
+       role for anyone outside this machine. -->
+  <Target Name="ExportForConsumers" AfterTargets="Build" Condition="'$(TestRoot)' != ''">
+    <MakeDir Directories="$(TestRoot)/harness" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(TestRoot)/harness" />
+    <Message Importance="high" Text="harness assembly exported to $(TestRoot)/harness" />
+  </Target>
+
+  <!-- The loader scans <install>/Mods and <userdata>/Mods. TestInstallDir is supplied by
+       run-tests.sh; building directly just skips the install step. -->
+  <Target Name="InstallModZip" AfterTargets="CreateModZip" Condition="'$(TestInstallDir)' != '' AND Exists('$(TestInstallDir)')">
+    <MakeDir Directories="$(TestInstallDir)/Mods" />
+    <Copy SourceFiles="$(ZipPath)" DestinationFolder="$(TestInstallDir)/Mods" />
+    <Message Importance="high" Text="installed to $(TestInstallDir)/Mods/$(ModId).zip" />
+  </Target>
+
+</Project>
