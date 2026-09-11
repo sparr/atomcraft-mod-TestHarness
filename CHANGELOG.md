@@ -32,6 +32,10 @@ registration rather than at compile time.
 
 ### Fixed
 
+- **A run that selected no tests reported success.** `--atomtest-filter` is a substring match,
+  so a filter written as a regex matched nothing, ran zero tests, and exited 0, which is
+  indistinguishable from everything passing. Selecting no tests now fails the run, with a
+  message naming the filter and stating the matching rule. Reported by the Pressure mod.
 - **A passing run could report as a harness crash.** `run-tests.sh` extracted results by
   grepping `godot.log` without `-a`. The game writes bytes that make GNU grep classify that
   log as binary, and a binary-mode grep writes nothing into a redirect while still exiting 0,

@@ -68,8 +68,12 @@ Re-run `./bootstrap.sh` after a game update.
 ./run-tests.sh --cores 2                # pretend to be a small CI runner
 ```
 
-Exit code is the suite's: 0 clean, 1 a test failed, 70 the harness crashed, 71 an engine
-exception storm, 72 the engine logged exceptions, 124 timed out.
+Exit code is the suite's: 0 clean, 1 a test failed **or the run selected no tests**, 70 the
+harness crashed, 71 an engine exception storm, 72 the engine logged exceptions, 124 timed out.
+
+`--atomtest-filter` is a case-insensitive substring of the full, assembly-qualified test name,
+not a regular expression. A filter matching nothing fails the run rather than passing silently:
+a green build that tested nothing is indistinguishable from one where everything passed.
 
 Results land in `$TEST_ROOT/out/`: `results.jsonl` one record per test, plus a copy of
 `godot.log`.

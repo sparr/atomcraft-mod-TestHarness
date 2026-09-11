@@ -84,6 +84,13 @@ public sealed class TestCase
     /// <summary>Assembly-qualified so two mods can name a test the same thing.</summary>
     public string Name => $"{Method.DeclaringType?.Assembly.GetName().Name}.{Method.DeclaringType?.Name}.{Method.Name}";
 
+    /// <summary>
+    /// Whether this test is selected by a filter. Substring, case-insensitive, and
+    /// deliberately not a regex: a name is matched, not a pattern.
+    /// </summary>
+    public bool Matches(string? filter) =>
+        filter == null || Name.Contains(filter, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The assembly this test came from, for the version refusal check.</summary>
     public string? AssemblyName => Method.DeclaringType?.Assembly.GetName().Name;
 
@@ -140,7 +147,7 @@ public static class TestDiscovery
                         continue;
 
                     var test = new TestCase { Method = method, Attr = attr };
-                    if (filter != null && !test.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    if (!test.Matches(filter))
                         continue;
                     found.Add(test);
                 }

@@ -53,9 +53,11 @@ public static class TestExecutor
     {
         EnsureGameReady();
 
-        _queue = TestDiscovery.Discover(filter);
+        var all = TestDiscovery.Discover(null);
+        _queue = all.Where(t => t.Matches(filter)).ToList();
         _index = 0;
         _passed = _failed = _skipped = 0;
+        _selectionError = SelectionError(filter, all.Count, _queue.Count);
 
         // Before any test runs, so nothing left by the previous run can be mistaken for
         // evidence from this one.
@@ -64,8 +66,41 @@ public static class TestExecutor
         Log.Event("run_start", new()
         {
             ["tests"] = _queue.Count,
+            ["discovered"] = all.Count,
             ["filter"] = filter,
         });
+
+        if (_selectionError != null)
+            Log.Error(_selectionError);
+    }
+
+    private static string? _selectionError;
+
+    /// <summary>
+    /// Why a run selected no tests, or null if it selected some.
+    ///
+    /// Running nothing and reporting success is the worst outcome a test runner has: it is
+    /// indistinguishable from everything passing, and CI goes green. A filter that matches
+    /// nothing is far likelier to be a typo, or a regex written for a matcher that only does
+    /// substrings, than a deliberate request to run no tests.
+    /// </summary>
+    public static string? SelectionError(string? filter, int discovered, int selected)
+    {
+        if (selected > 0)
+            return null;
+
+        if (discovered == 0)
+            return "no tests were found at all. A test mod must be installed alongside the " +
+                   "harness and must have loaded; check the log for a mod that failed to " +
+                   "initialize.";
+
+        if (filter == null)
+            return $"no tests were selected out of {discovered} discovered, with no filter set.";
+
+        return $"the filter '{filter}' matched none of the {discovered} discovered tests, so " +
+               "this run tested nothing. The filter is a case-insensitive substring of the " +
+               "full test name, not a regular expression: 'A|B' matches a test whose name " +
+               "literally contains \"A|B\". Run without a filter to see the names.";
     }
 
     /// <summary>
@@ -95,6 +130,7 @@ public static class TestExecutor
                 ["failed"] = _failed,
                 ["skipped"] = _skipped,
                 ["artifacts"] = Artifacts.Count,
+                ["selectionError"] = _selectionError,
             });
             return true;
         }
@@ -137,8 +173,11 @@ public static class TestExecutor
         return false;
     }
 
-    /// <summary>Suite exit code: 0 when nothing failed.</summary>
-    public static int ExitCode => _failed == 0 ? 0 : 1;
+    /// <summary>
+    /// Suite exit code: 0 when nothing failed and something ran. A run that selected no tests
+    /// fails, because a green run that measured nothing is worse than a red one.
+    /// </summary>
+    public static int ExitCode => _failed == 0 && _selectionError == null ? 0 : 1;
 
     private static void Start(TestCase test)
     {
