@@ -1,3 +1,4 @@
+using Godot;
 using Atomcraft;
 
 namespace Atomcraft.TestHarness;
@@ -37,6 +38,52 @@ public static class Diagnostics
     /// SimField stores base material ids, so a mod using the other accessor places a
     /// different material than it asked for, silently.
     /// </summary>
+    /// <summary>
+    /// Validates every installed mod, plus any zip parked in a sibling "uninstalled"
+    /// directory. Reports at every level including lint, since a survey is exactly the place
+    /// to see the findings a normal check would suppress.
+    ///
+    /// Reads each mod's zip rather than the live registries, so a mod that fails to load, or
+    /// that kills the game at load, is still inspected. That is the case where this is worth
+    /// the most: a mod whose manifest points at data its build never produced loads silently
+    /// empty, and the first symptom is a null dereference three layers away in Materials.Init.
+    /// </summary>
+    public static void ValidateInstalledMods()
+    {
+        Log.Banner("installed mod validation");
+
+        foreach (var id in ModContent.InstalledModIds().OrderBy(s => s))
+        {
+            if (id is "0Harmony" or "GodotMonoModLoader") continue;
+            Report(id, () => Validation.Inspect(id));
+        }
+
+        var parked = OS.GetExecutablePath().GetBaseDir().GetBaseDir().PathJoin("uninstalled");
+        using var dir = DirAccess.Open(parked);
+        if (dir == null) return;
+
+        foreach (var file in dir.GetFiles())
+        {
+            if (!file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
+            Report($"{file} (not installed)", () => Validation.InspectZip(parked.PathJoin(file)));
+        }
+    }
+
+    private static void Report(string label, Func<IReadOnlyList<Finding>> inspect)
+    {
+        try
+        {
+            var findings = inspect();
+            var errors = findings.Count(f => f.Severity == Severity.Error);
+            Log.Info($"{label}: {findings.Count} finding(s), {errors} error(s)");
+            foreach (var f in findings) Log.Info($"  {f}");
+        }
+        catch (Exception e)
+        {
+            Log.Error($"{label}: could not be inspected: {e.GetType().Name}: {e.Message}");
+        }
+    }
+
     public static void MaterialIdSpaces()
     {
         var total = 0;

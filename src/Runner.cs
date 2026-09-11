@@ -46,6 +46,7 @@ public static class Runner
                     // Diagnostics query the game directly, so they need the same
                     // prerequisites the suite does.
                     TestExecutor.EnsureGameReady();
+                    Diagnostics.ValidateInstalledMods();
                     Diagnostics.MaterialIdSpaces();
                     Diagnostics.AmbientProfile();
                 }

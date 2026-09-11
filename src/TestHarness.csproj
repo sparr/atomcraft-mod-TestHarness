@@ -14,6 +14,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The game loads mod JSON with Newtonsoft; validation re-reads the same files. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(GameInstallDir)\data_Atomcraft_windows_x86_64\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <!-- Never copy game assemblies next to the mod DLL. -->
     <Reference Include="Atomcraft">
       <HintPath>$(GameDataDir)/Atomcraft.dll</HintPath>

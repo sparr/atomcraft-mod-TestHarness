@@ -12,8 +12,13 @@ public static class GameBugRepros
 {
     /// <summary>
     /// Reaction.MaxTemperature is declared, parsed from JSON, and copied into the runtime
-    /// Reaction struct, but never read. Only the minimum is enforced, at
-    /// BaseMaterial.cs:507, so a reaction fires at any temperature above its floor.
+    /// Reaction struct, but never read. Only the minimum is enforced, so a reaction fires at
+    /// any temperature above its floor.
+    ///
+    /// Not a defect, as it turns out: the developer says the ceiling is deliberately
+    /// disabled at present, and hopefully temporarily. Kept here because the effect on a mod
+    /// is the same either way, a declared ceiling does nothing, and because this test is how
+    /// we will notice the day it is switched back on.
     ///
     /// Osmium Disulfide Decomposition is the clearest vanilla case: window 800 to 1100 K,
     /// Probability 0 so it fires the moment conditions are met with no dice roll, a
