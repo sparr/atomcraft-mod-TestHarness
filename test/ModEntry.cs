@@ -12,7 +12,7 @@ public static class ModEntry
     {
         // The loader's dependencies carry no version constraint, so a mismatched harness
         // would otherwise surface as a MissingMethodException once a test runs.
-        Harness.RequireVersion("0.1");
+        Harness.RequireVersion("0.2");
         ExampleChannel.Register();
         Log.Info("TestHarness.Test loaded");
     }
