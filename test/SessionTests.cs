@@ -128,7 +128,7 @@ public static class SessionTests
     }
 
     /// <summary>
-    /// Every material in the neighbourhood is unchanged after a save and reload, not merely
+    /// Every material in the neighborhood is unchanged after a save and reload, not merely
     /// the cells the test wrote.
     ///
     /// Checking only your own pixels cannot catch a round trip that loses heat, drops a

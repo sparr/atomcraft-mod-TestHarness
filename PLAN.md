@@ -1137,7 +1137,7 @@ its own CoreCLR. That signature is now in the wrapper's install diagnosis.
 
 - Whether a parent-set `APPDATA` survives into the game on real Windows. Wine overrides
   `APPDATA` from the prefix registry before the process sees it, while an arbitrary variable
-  propagates fine. That is Wine behaviour and nothing on real Windows does it, so the
+  propagates fine. That is Wine behavior and nothing on real Windows does it, so the
   mechanism is well founded, but it is not verified and is not described as such.
 - The shell layer of `RUNNER=native`: `is_windows` detection, `taskkill`, `winpty`, and path
   translation all need a Windows bash (MSYS2 or Git Bash).

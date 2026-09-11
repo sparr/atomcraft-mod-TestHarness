@@ -62,7 +62,7 @@ public sealed class Region
     /// </summary>
     public const int ChunkSize = 64;
 
-    /// <summary>Chunks of air kept between regions so neighbours cannot interact.</summary>
+    /// <summary>Chunks of air kept between regions so neighbors cannot interact.</summary>
     private const int SpacingChunks = 1;
     private const int Margin = SpacingChunks * ChunkSize;
 
@@ -546,7 +546,7 @@ public sealed class Region
     /// SimSnapshot.GetChunkChecksum. That is the function multiplayer uses to detect
     /// desync, so a difference here is a difference the game itself would call a divergence.
     ///
-    /// Note it reads 65x65 cells per chunk, one row and column into the neighbour, which is
+    /// Note it reads 65x65 cells per chunk, one row and column into the neighbor, which is
     /// the game's own off-by-one. The margin around a region is cleared air, so it stays
     /// deterministic.
     /// </summary>

@@ -264,7 +264,7 @@ public static class Session
     /// preserved anything.
     ///
     /// Comparing these catches what checking only the cells you wrote cannot: a lost
-    /// boundary cell, a segment written back at the wrong offset, a neighbour disturbed.
+    /// boundary cell, a segment written back at the wrong offset, a neighbor disturbed.
     /// </summary>
     public static Dictionary<(int X, int Y), int> ChunkMaterialChecksums(int x, int y, int width, int height)
     {

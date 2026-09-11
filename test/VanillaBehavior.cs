@@ -69,7 +69,7 @@ public static class VanillaBehavior
     }
 
     [GameTest]
-    public static void HeatConductsIntoNeighbours(Region r)
+    public static void HeatConductsIntoNeighbors(Region r)
     {
         r.Fill(0, 0, 8, 8, "Iron");
         r.SetHeat(4, 4, 2000);
@@ -80,7 +80,7 @@ public static class VanillaBehavior
 
         if (after <= before)
             throw new AssertionException(
-                $"heat did not conduct: neighbour went {before} -> {after}\n{r.Dump()}");
+                $"heat did not conduct: neighbor went {before} -> {after}\n{r.Dump()}");
     }
 
     /// <summary>
@@ -218,9 +218,9 @@ public static class VanillaBehavior
         if (r.HeatAt(4, 4) != 1200)
             throw new AssertionException($"expected 1200 K at the spawn, got {r.HeatAt(4, 4)}");
 
-        // The neighbour is untouched: setting a pixel's heat is not a local heat source.
+        // The neighbor is untouched: setting a pixel's heat is not a local heat source.
         if (r.HeatAt(5, 4) != 290)
-            throw new AssertionException($"spawning changed a neighbour to {r.HeatAt(5, 4)} K");
+            throw new AssertionException($"spawning changed a neighbor to {r.HeatAt(5, 4)} K");
 
         r.Fill(8, 4, 3, 2, "Iron", 800);
         for (var y = 4; y < 6; y++)
