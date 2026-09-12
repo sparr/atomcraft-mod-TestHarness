@@ -15,13 +15,16 @@ public static class ModEntry
 {
     public const string ModId = "TestHarness";
     /// <summary>
-    /// The released version. Between releases this carries the next minor version with a -dev
-    /// suffix, so RequireVersion refuses a mod built against the last release as soon as the
-    /// API moves rather than at release time; the check compares major and minor, so leaving
-    /// it at the released number is how a consumer ends up with a MissingMethodException
-    /// instead of a message naming both versions.
+    /// The version this build reports.
+    ///
+    /// Between releases it carries the next minor version with a -dev suffix, so RequireVersion
+    /// refuses a mod built against the last release as soon as the API moves rather than at
+    /// release time. The check compares major and minor, so leaving this at the released number
+    /// is how a consumer ends up with a MissingMethodException instead of a message naming both
+    /// versions. Set it to the plain number when cutting a release, and back to the next -dev
+    /// immediately afterwards.
     /// </summary>
-    public static readonly string Version = "0.3.0";
+    public static readonly string Version = "0.4.0-dev";
 
     /// <summary>Parsed from the args after <c>--</c> on the game command line.</summary>
     public static HarnessOptions Options { get; private set; } = new();

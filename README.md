@@ -139,6 +139,11 @@ leaves the run green and a mod that ran nothing would report success.
 The check compares major and minor only, so `"0.3"` matches every 0.3.x. Install the new
 harness and change the pin together.
 
+Pin to the release you use. A build from `main` reports the *next* version with a `-dev`
+suffix, currently `0.4.0-dev`, so that a mod pinned to the last release is refused as soon as
+the API moves rather than failing later with a missing method. If you are tracking `main`, pin
+to that instead and expect it to move.
+
 Reference the harness assembly, and ship nothing but your own DLL and `mod.json`:
 
 ```xml

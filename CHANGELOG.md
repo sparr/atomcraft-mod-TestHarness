@@ -5,6 +5,11 @@ between minor versions and are listed first in each entry. Consumers should call
 `Harness.RequireVersion("0.3")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
 
+## Unreleased
+
+Nothing yet. `main` reports `0.4.0-dev`, so a mod pinned to `"0.3"` is refused here and should
+stay on the v0.3.0 release until there is something to move for.
+
 ## 0.3.0
 
 Driven by a second round of the Pressure mod's needs document, and by testing the harness
