@@ -51,6 +51,11 @@ unanchored.
 - **Registered state now resets when a world ends**, via `Simulation.Reset`. `OnUniverseLoad`
   is not a substitute: it runs only when a universe file is actually read, so starting a freshly
   generated world would otherwise inherit the previous world's state.
+- **A harness test asserted an RNG tie-break.** `SolidsSlideDownASlope` dropped a grain on a
+  peak with open air on both sides, where the direction is a coin flip the game decides with a
+  deterministic roll, and asserted the way vanilla breaks it. A mod that changes the rolls
+  failed it, correctly. The peak now backs against a wall, so there is one way down and the
+  assertion is about slopes. Reported by an RNG-modifying mod.
 - `FieldRegistry` gains the `Unregister` the other two registries always had.
 
 ### Changed

@@ -104,19 +104,22 @@ public static class VanillaBehavior
     }
 
     /// <summary>
-    /// Falling solids slide down slopes rather than stacking into a column, which is the
-    /// behavior that makes piles form. A staircase is the smallest shape that shows it.
-    /// </summary>
-    /// <summary>
     /// Falling solids tumble down slopes rather than stacking into a column. A staircase is
-    /// the smallest shape that shows it. The region is walled so a grain that slides off
-    /// the end is contained rather than silently leaving.
+    /// the smallest shape that shows it. The region is walled so a grain that slides off the
+    /// end is contained rather than silently leaving.
+    ///
+    /// The peak sits against the left wall on purpose. An earlier version put it mid-region,
+    /// where a grain landing on the peak has open air on both sides and the direction it
+    /// takes is a coin flip decided by the RNG; vanilla happened to send it right, and the
+    /// test asserted right. A mod that changes the rolls failed it, correctly, and reported
+    /// as much. Backing the peak against the wall leaves exactly one way down, so the test
+    /// is about slopes rather than about which way a tie breaks.
     /// </summary>
     [GameTest(Wall = "Granite")]
     public static void SolidsSlideDownASlope(Region r)
     {
         const int steps = 6;
-        const int topX = 12;
+        var topX = r.WallThickness;                 // against the wall: no leftward option
         var floorY = r.Height - r.WallThickness - 1;
 
         // Columns descending to the right: tallest at topX, one cell shorter each step.

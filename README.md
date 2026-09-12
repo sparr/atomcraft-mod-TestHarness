@@ -214,6 +214,14 @@ you never placed. The price is that ambient is far from what `Clear` leaves.
 
 **Static pixels stay put; solids, liquids, and gases all move.** "Hard" is not "fixed".
 
+**A tie broken by the RNG is not a behavior.** If a fixture leaves a pixel a genuine choice,
+open air on both sides of a peak for instance, the direction it takes is a coin flip the game
+decides with a deterministic roll. A test asserting the way vanilla happens to break it passes
+forever and then fails for anyone whose mod touches the rolls, which is a bug in the test
+rather than in their mod. Build the fixture so the tie cannot arise, by backing the shape
+against a wall or sealing one side, instead of asserting whichever way it fell today. One of
+the harness's own tests had this and an RNG mod found it.
+
 ## Tests that need a world
 
 Most tests do not. Pixel behavior runs against the live field with no world loaded, which
