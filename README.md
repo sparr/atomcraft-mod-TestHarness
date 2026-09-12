@@ -291,6 +291,35 @@ private static readonly ModLog Log = Atomcraft.TestHarness.Log.For("MyMod");
 
 Same four methods plus `Event`, which tags its records with your mod id.
 
+### What would this have returned unpatched?
+
+A mod that changes what a game method returns usually wants to compare against what it would
+have returned. Harmony can copy the method's original IL into a stub you supply, so the
+unpatched code stays callable while the real method stays patched for everyone else:
+
+```csharp
+private static int RollOriginal(int posX, int posY, int tick) =>
+    throw new NotImplementedException("not bound");
+
+Original.Bind(typeof(RNG), nameof(RNG.Roll),
+    AccessTools.Method(typeof(MyTests), nameof(RollOriginal)),
+    new[] { typeof(int), typeof(int), typeof(int) });
+```
+
+`RollOriginal` now runs the game's code with no patches applied; `RNG.Roll` still runs with
+them. You write the stub because its signature is the contract, and the parameter types pick
+the overload: the game overloads heavily, and binding the wrong one gives you a stub that
+compiles, runs, and answers a different question.
+
+This works on hot methods. `RNG.Roll` is called thousands of times per tick and the harness
+tests exactly that case, because a technique that quietly failed there would leave a benchmark
+comparing two identical things and reporting a plausible ratio.
+
+What it does not give you is a whole scenario running unpatched. The simulation calls the
+patched method from inside its own code, and a delegate you hold cannot redirect that. If you
+need a vanilla scenario to compare against, a config switch in your own mod is the reliable
+way; suspending patches globally races the parallel simulation and is not offered.
+
 ### Things that will bite you
 
 **Prefer `TicksUntil` to a tick count.** It states what the test expects, stops as soon as

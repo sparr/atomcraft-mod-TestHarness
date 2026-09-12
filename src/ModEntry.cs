@@ -52,6 +52,7 @@ public static class ModEntry
         ExceptionSuppressor.Install(harmony);
         WorldFixtures.Install(harmony);
         SimFeatures.Install(harmony);
+        Original.Install(harmony);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
         foreach (var m in harmony.GetPatchedMethods())
             Log.Info($"patched: {m.DeclaringType?.FullName}.{m.Name}");

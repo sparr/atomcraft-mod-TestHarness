@@ -40,8 +40,13 @@
             <HintPath>$(TestHarnessDir)/Atomcraft.TestHarness.dll</HintPath>
             <Private>false</Private>
         </Reference>
-        <!-- No Harmony reference: the tests patch nothing. The harness does the patching,
-             and a package reference here would be a restore dependency for no benefit. -->
+        <!-- Referenced, never shipped. The loader bundles Harmony, so a mod must not carry its
+             own copy; ExcludeAssets keeps it out of the output. Needed here because a test
+             installs a patch of its own to prove Original.Bind bypasses one. -->
+        <PackageReference Include="Lib.Harmony" Version="2.4.2">
+            <Private>false</Private>
+            <ExcludeAssets>runtime</ExcludeAssets>
+        </PackageReference>
     </ItemGroup>
 
     <Target Name="CreateModZip" AfterTargets="Build">

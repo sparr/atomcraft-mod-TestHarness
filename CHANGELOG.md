@@ -95,6 +95,10 @@ unanchored.
   `--atomtest-bench`; `Bench.Measure` and `Bench.Compare` discard a warmup pass and report
   ns/op as `benchmark` records. They assert nothing, because a timing threshold on a shared
   desktop is a flaky test.
+- **`Original.Bind`**, giving a mod a callable copy of a method as it was before anyone patched
+  it, so "what would this have returned" needs no unpatching. Verified against `RNG.Roll` with a
+  patch active, since a hot inlined method is where the technique would fail if it were going
+  to.
 - **`Log.For(modId)`**, a log bound to your mod's name, so a line in `godot.log` can be
   attributed when several mods are in a run.
 - **`bootstrap.sh --seed-from <root>`**, filling a private test root from an already-patched
