@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Provision an isolated, patched Atomcraft install for automated testing.
 #
-#   ./bootstrap.sh [--force] [--detect]
+#   ./bootstrap.sh [--force] [--detect] [--seed-from <root>]
 #
 # Never touches the real game install: the copy is built under $TEST_ROOT and the mod
 # loader patch is applied to that copy only. Re-run after a game update.
@@ -16,13 +16,14 @@ LOADER_SHA256="0dfa7c8bdf8275400edd32fb126547564bd402c139dbd960954f57483f179e2a"
 LOADER_SIZE="12240519"
 LOADER_SOURCE="https://github.com/sacroimper/GodotMonoModLoader  (Release/GodotMonoModLoader.zip)"
 
-FORCE=0; DETECT=0
-for arg in "$@"; do
-  case "$arg" in
-    --force) FORCE=1 ;;
-    --detect) DETECT=1 ;;
+FORCE=0; DETECT=0; SEED_FROM=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --detect) DETECT=1; shift ;;
+    --seed-from) SEED_FROM="${2:-}"; [ -n "$SEED_FROM" ] || die "--seed-from needs a path"; shift 2 ;;
     -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
-    *) die "unknown argument: $arg" ;;
+    *) die "unknown argument: $1" ;;
   esac
 done
 
@@ -135,6 +136,49 @@ say "loader: $LOADER_ZIP_FOUND (checksum ok)"
 IDENTITY="$(game_identity "$GAME_DIR")"
 BUILDID="$(steam_buildid)"
 say "game identity: ${BUILDID:+buildid $BUILDID, }sha256 ${IDENTITY:0:16}"
+
+# --- seed from an already-provisioned root ----------------------------------------------------
+# Two projects sharing one TEST_ROOT put their mod zips and their results in the same place, so
+# a failure caused by one surfaces in the other. Overriding TEST_ROOT fixes that and used to
+# cost a full re-provision of a 441 MB install; this fills the new root from an existing one
+# instead. Hardlinked where the filesystem allows, so the copy is near-free and the two roots
+# still cannot write through to each other: the patcher rewrites files rather than editing in
+# place, and nothing here writes into the game files at run time.
+#
+# Mod zips are deliberately not carried over. They are the part that differs between projects,
+# and inheriting another project's mods is the confusion this option exists to prevent.
+if [ -n "$SEED_FROM" ]; then
+  SRC="$SEED_FROM/install"
+  [ -d "$SRC" ] || die "no install under $SEED_FROM; expected $SRC"
+  [ -f "$SRC/$DATA_DIR_NAME/Atomcraft.dll.backup" ] \
+    || die "$SRC is not patched (no Atomcraft.dll.backup); bootstrap it there first"
+
+  if [ -e "$INSTALL" ] && [ "$FORCE" = 0 ]; then
+    die "$INSTALL already exists; use --force to replace it from $SEED_FROM"
+  fi
+
+  say "seeding $INSTALL from $SRC"
+  rm -rf "$INSTALL"
+  mkdir -p "$(dirname "$INSTALL")"
+
+  # Hardlinks cannot span filesystems, and a private root under /tmp against a shared one
+  # under ~/.cache is exactly that case. cp -al fails partway, having already created the
+  # destination, so the fallback has to clear it first or it copies the source *into* the
+  # half-made directory and produces an install with no game at its top level.
+  if cp -al "$SRC" "$INSTALL" 2>/dev/null; then
+    say "hardlinked; the seeded copy costs almost nothing"
+  else
+    rm -rf "$INSTALL"
+    cp -a "$SRC" "$INSTALL"
+    say "copied; $SEED_FROM is on a different filesystem so hardlinks were not possible"
+  fi
+
+  rm -rf "$INSTALL/Mods"
+  mkdir -p "$INSTALL/Mods"
+
+  say "seeded; mods not carried over, install your own with ./build-mod.sh --install"
+  exit 0
+fi
 
 # --- (re)build the install copy --------------------------------------------------------------
 if [ -e "$INSTALL" ] && [ "$FORCE" = 0 ]; then

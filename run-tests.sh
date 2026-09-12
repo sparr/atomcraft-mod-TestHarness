@@ -194,5 +194,13 @@ elif ! grep -q '"event":"run_end"' "$RECORDS"; then
   [ "$launch_rc" = 0 ] && launch_rc=70
 fi
 
+# The counts in words, because a verdict nobody reads is a verdict nobody acts on. In
+# particular "inapplicable" has to be visible here: a test that declined to judge anything is
+# not a pass, and reading that only out of the JSON is how it gets mistaken for one.
+SUMMARY="$(grep -a '"event":"run_summary"' "$RECORDS" | tail -1)"
+if [ -n "$SUMMARY" ]; then
+  echo "==> $(printf '%s' "$SUMMARY" | sed -E 's/.*"passed":([0-9]+).*"failed":([0-9]+).*"skipped":([0-9]+).*"inapplicable":([0-9]+).*/\1 passed, \2 failed, \3 skipped, \4 inapplicable/')"
+fi
+
 echo "==> suite exit code: $launch_rc"
 exit $launch_rc

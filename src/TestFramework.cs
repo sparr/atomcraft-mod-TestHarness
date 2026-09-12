@@ -28,7 +28,7 @@ public sealed class AssertionException : Exception
 /// Not [Test], which would collide with NUnit's for any consumer importing both namespaces.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
-public sealed class GameTestAttribute : Attribute
+public class GameTestAttribute : Attribute
 {
     /// <summary>
     /// Region size in 64x64 chunks, the engine's own unit of work. One chunk is plenty for
@@ -114,6 +114,9 @@ public sealed class TestCase
     public static Regex Compile(string filter) =>
         new(filter, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    /// <summary>Whether this is a benchmark rather than a test.</summary>
+    public bool IsBenchmark => Attr is GameBenchmarkAttribute;
+
     /// <summary>The assembly this test came from, for the version refusal check.</summary>
     public string? AssemblyName => Method.DeclaringType?.Assembly.GetName().Name;
 
@@ -130,7 +133,13 @@ public sealed class TestCase
 /// </summary>
 public static class TestDiscovery
 {
-    public static List<TestCase> Discover(string? filter)
+    public static List<TestCase> Discover(string? filter) => Discover(filter, benchmarks: false);
+
+    /// <summary>
+    /// Finds tests, and benchmarks only when asked for. A benchmark that runs on every
+    /// ordinary edit slows the suite and reports a measurement as though it were a verdict.
+    /// </summary>
+    public static List<TestCase> Discover(string? filter, bool benchmarks)
     {
         var found = new List<TestCase>();
 
@@ -170,6 +179,8 @@ public static class TestDiscovery
                         continue;
 
                     var test = new TestCase { Method = method, Attr = attr };
+                    if (test.IsBenchmark != benchmarks)
+                        continue;
                     if (!test.Matches(filter))
                         continue;
                     found.Add(test);

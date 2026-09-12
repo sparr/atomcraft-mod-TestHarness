@@ -92,6 +92,12 @@ public sealed class HarnessOptions
     /// </summary>
     public string? Exclude { get; private set; }
 
+    /// <summary>
+    /// Run benchmarks instead of tests. They are a measurement rather than a verdict, so they
+    /// are not mixed into an ordinary run.
+    /// </summary>
+    public bool Benchmarks { get; private set; }
+
     /// <summary>Run the one-shot game diagnostics before the suite.</summary>
     public bool Diagnose { get; private set; }
 
@@ -110,6 +116,7 @@ public sealed class HarnessOptions
                 case "--atomtest-allow-engine-exceptions": o.AllowEngineExceptions = true; break;
                 case "--atomtest-filter":          o.Filter = value; break;
                 case "--atomtest-exclude":         o.Exclude = value; break;
+                case "--atomtest-bench":           o.Benchmarks = true; break;
                 case "--atomtest-diagnose":        o.Diagnose = true; break;
             }
         }
@@ -157,9 +164,50 @@ public static class AssemblyDiagnostics
 /// All harness output. Machine-readable records are single-line JSON prefixed with a
 /// stable marker so a wrapper can extract them from godot.log without parsing prose.
 /// </summary>
+/// <summary>
+/// A log bound to one mod's name, so a line in godot.log can be attributed to whoever wrote it.
+///
+/// With several mods in a run, everything going out under the harness's own name is
+/// unreadable, and a mod that works around it by calling GD.Print directly loses the marker
+/// conventions that make a record machine-readable.
+/// </summary>
+public sealed class ModLog
+{
+    private readonly string _id;
+
+    internal ModLog(string id) => _id = id;
+
+    public void Banner(string message) => GD.Print($"[{_id}] === {message} ===");
+    public void Info(string message)   => GD.Print($"[{_id}] {message}");
+    public void Warn(string message)   => GD.Print($"[{_id}] WARNING: {message}");
+    public void Error(string message)  => GD.PrintErr($"[{_id}] ERROR: {message}");
+
+    /// <summary>
+    /// A structured record, carrying the mod that wrote it so a reader can tell records apart
+    /// without parsing prose.
+    /// </summary>
+    public void Event(string kind, Dictionary<string, object?> fields)
+    {
+        var withSource = new Dictionary<string, object?>(fields);
+        withSource["mod"] = _id;
+        Log.Event(kind, withSource);
+    }
+}
+
 public static class Log
 {
     public const string Marker = "##ATOMTEST##";
+
+    /// <summary>
+    /// A log that writes under your mod's name instead of the harness's.
+    ///
+    ///     private static readonly ModLog Log = Atomcraft.TestHarness.Log.For("MyMod");
+    ///
+    /// Taken as an argument rather than inferred from the calling assembly: inference means
+    /// another stack walk, and the one place the harness already guesses a caller that way is
+    /// only safe because it merely picks the wording of a message.
+    /// </summary>
+    public static ModLog For(string modId) => new(modId);
 
     public static void Banner(string message) => GD.Print($"[{ModEntry.ModId}] === {message} ===");
     public static void Info(string message)   => GD.Print($"[{ModEntry.ModId}] {message}");

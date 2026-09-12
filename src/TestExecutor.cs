@@ -30,7 +30,7 @@ public static class TestExecutor
 
     private static List<TestCase>? _queue;
     private static int _index;
-    private static int _passed, _failed, _skipped;
+    private static int _passed, _failed, _skipped, _inapplicable;
     // A stack, not a single enumerator: a test yields another coroutine to compose steps
     // ("enter a world", "save and reload"), and the inner one has to be driven to
     // completion before the outer resumes.
@@ -55,9 +55,9 @@ public static class TestExecutor
     {
         EnsureGameReady();
 
-        var all = TestDiscovery.Discover(null);
+        var all = TestDiscovery.Discover(null, ModEntry.Options.Benchmarks);
         _index = 0;
-        _passed = _failed = _skipped = 0;
+        _passed = _failed = _skipped = _inapplicable = 0;
 
         // A pattern that will not compile is reported rather than thrown: it is a usage
         // mistake, and a stack trace out of the runner would look like the harness breaking.
@@ -135,6 +135,10 @@ public static class TestExecutor
             return $"the exclude '{exclude}' removed all {matchedBeforeExclude} test(s) the " +
                    $"filter selected, so this run tested nothing.";
 
+        if (discovered == 0 && ModEntry.Options.Benchmarks)
+            return "no benchmarks were found. A benchmark is a method marked [GameBenchmark]; " +
+                   "without --atomtest-bench the harness runs tests instead.";
+
         if (discovered == 0)
             return "no tests were found at all. A test mod must be installed alongside the " +
                    "harness and must have loaded; check the log for a mod that failed to " +
@@ -175,6 +179,7 @@ public static class TestExecutor
                 ["passed"] = _passed,
                 ["failed"] = _failed,
                 ["skipped"] = _skipped,
+                ["inapplicable"] = _inapplicable,
                 ["artifacts"] = Artifacts.Count,
                 ["selectionError"] = _selectionError,
             });
@@ -223,7 +228,18 @@ public static class TestExecutor
     /// Suite exit code: 0 when nothing failed and something ran. A run that selected no tests
     /// fails, because a green run that measured nothing is worse than a red one.
     /// </summary>
-    public static int ExitCode => _failed == 0 && _selectionError == null ? 0 : 1;
+    public static int ExitCode =>
+        _failed == 0 && _selectionError == null && !NothingWasJudged ? 0 : 1;
+
+    /// <summary>
+    /// True when the run reached its end having judged nothing: every test that ran declined
+    /// to give a verdict.
+    ///
+    /// Exiting 0 here would be the same lie as a filter that matched nothing. A suite whose
+    /// preconditions all turned out to be absent has not shown that anything works, and the
+    /// reason each test gave is in the records for whoever looks.
+    /// </summary>
+    private static bool NothingWasJudged => _inapplicable > 0 && _passed == 0 && _failed == 0;
 
     private static void Start(TestCase test)
     {
@@ -271,12 +287,26 @@ public static class TestExecutor
         }
         catch (System.Reflection.TargetInvocationException ex)
         {
-            Finish("failed", Describe(ex.InnerException ?? ex));
+            Finish(ex.InnerException ?? ex);
         }
         catch (Exception ex)
         {
-            Finish("failed", Describe(ex));
+            Finish(ex);
         }
+    }
+
+    /// <summary>
+    /// Ends a test that threw, as a failure or as no verdict at all.
+    ///
+    /// Reflection wraps whatever a test body throws, so the distinction has to be made on the
+    /// unwrapped exception rather than where it was caught.
+    /// </summary>
+    private static void Finish(Exception ex)
+    {
+        if (ex is InapplicableException)
+            Finish("inapplicable", ex.Message);
+        else
+            Finish("failed", Describe(ex));
     }
 
     /// <summary>Advances a frame-driven test by at most one yield per frame.</summary>
@@ -322,7 +352,7 @@ public static class TestExecutor
         }
         catch (Exception ex)
         {
-            Finish("failed", Describe(ex));
+            Finish(ex);
         }
     }
 
@@ -364,7 +394,9 @@ public static class TestExecutor
         // the cursor past the end of a test only shrinks how many tests a run can hold.
         Region.ReleaseAll();
 
-        if (test.Status == "passed") _passed++; else _failed++;
+        if (test.Status == "passed") _passed++;
+        else if (test.Status == "inapplicable") _inapplicable++;
+        else _failed++;
 
         Log.Event("test", new()
         {
@@ -372,11 +404,16 @@ public static class TestExecutor
             ["status"] = test.Status,
             ["ms"] = (int)test.ElapsedMs,
             ["frames"] = _framesOnCurrent,
-            ["failure"] = test.Failure,
+            // An abstention carries a reason, not a failure. Putting it under "failure" would
+            // read as one to anything scanning these records for what went wrong.
+            ["failure"] = test.Status == "inapplicable" ? null : test.Failure,
+            ["reason"] = test.Status == "inapplicable" ? test.Failure : null,
         });
 
         if (test.Failure != null)
-            Log.Info($"FAILED {test.Name}\n{test.Failure}");
+            Log.Info(test.Status == "inapplicable"
+                ? $"NO VERDICT {test.Name}: {test.Failure}"
+                : $"FAILED {test.Name}\n{test.Failure}");
 
         // Cleared here rather than at the start of the next test, so a test that fails or
         // throws mid-way still leaves the simulation whole for whatever runs next.

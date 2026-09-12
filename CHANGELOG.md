@@ -87,6 +87,19 @@ unanchored.
 
 ### Added
 
+- **`Harness.Inapplicable(reason)`**, for a test that looked and found nothing to judge. Its
+  own status, counted separately and shown in the summary line, and neither a pass nor a
+  failure. A run in which nothing was judged exits nonzero, for the same reason a filter
+  matching no tests does.
+- **Benchmarks.** `[GameBenchmark]` is excluded from an ordinary run and appears under
+  `--atomtest-bench`; `Bench.Measure` and `Bench.Compare` discard a warmup pass and report
+  ns/op as `benchmark` records. They assert nothing, because a timing threshold on a shared
+  desktop is a flaky test.
+- **`Log.For(modId)`**, a log bound to your mod's name, so a line in `godot.log` can be
+  attributed when several mods are in a run.
+- **`bootstrap.sh --seed-from <root>`**, filling a private test root from an already-patched
+  one instead of provisioning 441 MB again. Hardlinked where the filesystem allows, copied
+  otherwise, and it says which. Mod zips are not carried over.
 - **Validation**, nine generic rules for mistakes that produce no error at load and no crash:
   dangling material names in material fields and reactions, a manifest data path matching
   nothing in the zip, an unregistered `ColorDelegate`, a missing translation, a craftable in no

@@ -53,6 +53,17 @@ cp atomcraft-test.conf.example atomcraft-test.conf   # then edit it
 ./bootstrap.sh                                       # provision a patched copy of the game
 ```
 
+Two projects sharing one `$TEST_ROOT` put their mod zips and their results in the same place,
+so a failure caused by one surfaces in the other. Override `TEST_ROOT` and fill the new root
+from a patched one rather than provisioning again:
+
+```sh
+TEST_ROOT=~/.cache/mymod-test ./bootstrap.sh --seed-from ~/.cache/atomcraft-test
+```
+
+Hardlinked when both roots are on one filesystem, copied otherwise, and it says which. Mod
+zips are not carried over, since those are the part that differs between projects.
+
 `bootstrap.sh` copies the game to `$TEST_ROOT` (default `~/.cache/atomcraft-test`) and
 patches **that copy** with GodotMonoModLoader. Your real install is never touched, and
 tests run against a throwaway prefix so your saves and blueprints are untouchable.
@@ -68,8 +79,9 @@ Re-run `./bootstrap.sh` after a game update.
 ./run-tests.sh --cores 2                # pretend to be a small CI runner
 ```
 
-Exit code is the suite's: 0 clean, 1 a test failed **or the run selected no tests**, 70 the
-harness crashed, 71 an engine exception storm, 72 the engine logged exceptions, 124 timed out.
+Exit code is the suite's: 0 clean, 1 a test failed, the run selected no tests, **or nothing
+was judged**, 70 the harness crashed, 71 an engine exception storm, 72 the engine logged
+exceptions, 124 timed out.
 
 `--atomtest-filter` is a case-insensitive, unanchored regular expression over the full,
 assembly-qualified test name, so a plain word selects every name containing it and
@@ -214,6 +226,10 @@ using (SimFeatures.Disable(SimFeature.HeatConductance))   // part of a test only
     r.Ticks(60);
 ```
 
+To hold a region at a fixed temperature rather than switching the mechanisms off, see
+`Region.PinnedHeat` under mod state: "keep this scene at 400 K" is a fixture need rather than a
+simulation-tuning one, and ticking a pinned region disables these two anyway.
+
 `Movement` is falling, flowing, and rising; `HeatConductance` is heat spreading between cells;
 `AmbientHeat` is the decay toward the planet's temperature. Movement is only the tail of a
 material's `Step`, so reactions, decay, ignition, condensation, evaporation, combustion, and
@@ -223,6 +239,57 @@ Two things to know. A material that overrides `StepSolid` or `StepLiquid`, inclu
 keeps moving: the switch patches the base implementation. And `Region.PinnedHeat` predates
 this and papers over the same problem by rewriting heat every tick; `SimFeature.AmbientHeat`
 removes the cause instead, and is usually what you want.
+
+### When a test cannot judge anything
+
+`Skip` is decided when you write the test. Sometimes a test has to look first and find that
+its precondition is absent, so there is nothing to judge:
+
+```csharp
+[GameTest]
+public static void RollsMatchTheStockTable()
+{
+    if (!RNG.IsStockLookupTable)
+        Harness.Inapplicable("the game's RNG is not the stock table, so there is no baseline");
+    ...
+}
+```
+
+That is recorded as its own status, counted separately in the summary, and is neither a pass
+nor a failure. Returning early instead would record a pass, which claims the thing was checked.
+A run in which *nothing* was judged exits nonzero, for the same reason a filter matching no
+tests does: a green run that measured nothing is indistinguishable from one where everything
+worked.
+
+### Measuring instead of asserting
+
+A benchmark is a measurement, not a verdict, so it is marked differently and does not run
+unless asked for with `--atomtest-bench`:
+
+```csharp
+[GameBenchmark]
+public static void MyPassCost()
+{
+    Bench.Compare("mypass", 20_000,
+        "vanilla", () => Vanilla(),
+        "patched", () => Patched());
+}
+```
+
+`Bench.Measure` and `Bench.Compare` discard a first pass before timing, because whichever
+variant runs first in a process absorbs jit tiering and would otherwise read as slower. They
+assert nothing: a timing threshold on a shared desktop is a flaky test, and the number worth
+having is the one in `results.jsonl`, where a `benchmark` record carries it for trending.
+
+### Logging under your own name
+
+`Log` writes under the harness's name. With several mods in a run that is unattributable:
+
+```csharp
+private static readonly ModLog Log = Atomcraft.TestHarness.Log.For("MyMod");
+```
+
+Same four methods plus `Event`, which tags its records with your mod id.
 
 ### Things that will bite you
 

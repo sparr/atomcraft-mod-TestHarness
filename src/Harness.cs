@@ -67,6 +67,18 @@ public static class Harness
     public static string? RefusalReason(string? assemblyName) =>
         assemblyName != null && Refused.TryGetValue(assemblyName, out var why) ? why : null;
 
+    /// <summary>
+    /// Ends the running test with no verdict, because its precondition does not hold.
+    ///
+    ///     if (!RNG.IsStockLookupTable)
+    ///         Harness.Inapplicable("the game's RNG is not the stock table, so there is no " +
+    ///                              "baseline to compare live rolls against");
+    ///
+    /// Recorded as its own status rather than as a pass, since a passing test is a claim that
+    /// something was checked. A run in which nothing was judged does not exit 0.
+    /// </summary>
+    public static void Inapplicable(string reason) => throw new InapplicableException(reason);
+
     private static bool Matches(string expected, string actual)
     {
         var want = expected.Split('.');
