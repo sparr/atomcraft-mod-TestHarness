@@ -108,7 +108,17 @@ public static class WorldFixtures
             typeof(WorldFixtures), nameof(RefuseUnaskedWrite)));
     }
 
-    private static bool RefuseUnaskedWrite() => Session.AllowWrite("FileManager.WriteUniverseToDisk");
+    private static bool RefuseUnaskedWrite()
+    {
+        if (!Session.AllowWrite("FileManager.WriteUniverseToDisk"))
+            return false;
+
+        // Counted here rather than in Save, because this is the point at which a write
+        // actually happens. Session.PlanetWritten is derived from it, so a scope that wrapped
+        // no save, or a save that was refused, cannot claim a world reached disk.
+        Session.RecordUniverseWrite();
+        return true;
+    }
 
     public static void Install(Harmony harmony)
     {

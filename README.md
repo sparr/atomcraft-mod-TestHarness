@@ -430,6 +430,25 @@ clears that cache and then fails if no file was actually read, so a passing asse
 about persistence rather than about memory. `Session.UniverseLoads` counts real reads if you
 want to assert on it yourself.
 
+Saving is not automatic, and that is deliberate. Generating a world writes nothing to disk,
+and the game's own saves, at dawn and on the way out of a session, are suppressed: a test that
+leaves a world it does not care about should not pay ten seconds to write it. `Session.Save`
+is how a test asks for one.
+
+Two consequences worth knowing. The first save of a generated world is always complete even if
+you ask for `incremental: true`, because nothing has put the planet's segments in the save file
+yet and an incremental save would write only the handful your test touched; the reload would
+then hand back your pixels and air everywhere else, passing the assertion you wrote while
+losing the rest of the world. The harness logs when it overrides you.
+
+And if you call the game's save API yourself rather than `Session.Save`, it is suppressed like
+any other unasked save, with a warning naming your mod. Wrap it if you meant it:
+
+```csharp
+using (Session.AllowSaves())
+    FileManager.SaveGame(Simulation.CurrentState, forceSaveAllSegments: true);
+```
+
 Two things a single world's round trip cannot tell you, so test them separately:
 
 - **State is replaced, not merged.** `Persistence.AssertFieldIsReplacedOnLoad` covers a load

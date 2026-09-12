@@ -58,6 +58,21 @@ unanchored.
   assertion is about slopes. Reported by an RNG-modifying mod.
 - `FieldRegistry` gains the `Unregister` the other two registries always had.
 
+- **Generating a world no longer writes it to disk.** Creating one serialized all 1536 planet
+  segments and flushed them, about two and a half seconds every fresh session entry, by a path
+  that reached `SavePlanet` without passing the existing suppression. A fresh entry also
+  inherited the previous world's segments, since deleting the files does not touch the universe
+  `FileManager` caches in a static.
+- **The first save of a generated world is always complete.** With creation no longer writing
+  the segments, an incremental first save wrote only what the test touched, and the reload
+  returned those segments with air everywhere else. The assertion that would notice is the one
+  that passes, since the test's own pixels are exactly what was saved. Asking for `incremental`
+  on a world that has never been saved is overridden, and logged.
+- **Unasked saves are refused at `WriteUniverseToDisk` as well as the higher entry points**, so
+  a path nobody enumerated still stops, and a refusal names the calling mod rather than leaving
+  it to wonder why nothing was written. `Session.AllowSaves` is the way through for a test that
+  calls the game's save API directly.
+
 ### Changed
 
 - **`--atomtest-filter` is a case-insensitive, unanchored regular expression** over the full

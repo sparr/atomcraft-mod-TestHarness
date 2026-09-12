@@ -58,7 +58,7 @@ public static class Session
         if (fresh)
         {
             DeleteFixtureWorld();
-            PlanetWritten = false;
+            UniverseWrites = 0;
 
             // And drop the cached universe with it. FileManager keeps the last universe it
             // loaded in a static, and deleting the files on disk does not touch it, so a fresh
@@ -183,13 +183,39 @@ public static class Session
     internal static bool SaveRequested { get; private set; }
 
     /// <summary>
+    /// How many universe writes the harness has let through since this world was generated.
+    /// Counted at the chokepoint, so it records writes that happened rather than intentions.
+    /// </summary>
+    internal static int UniverseWrites { get; private set; }
+
+    internal static void RecordUniverseWrite() => UniverseWrites++;
+
+    /// <summary>
     /// Whether the current world has been written to disk since it was generated.
     ///
-    /// Creating a world no longer saves it (see WorldFixtures.SuppressCreationSave), so a reload
-    /// is only meaningful after a Save. Without this the failure would be a world that loads with
-    /// no planet segments, which looks like a bug in whatever the test was actually checking.
+    /// Creating a world no longer saves it, so a reload is only meaningful after a Save, and
+    /// without this the failure is a world that loads with no planet segments, looking like a
+    /// bug in whatever the test was actually checking.
+    ///
+    /// Derived rather than tracked, because a flag set by hand goes stale in both directions
+    /// and this one gates an exception. Setting it in Save would miss a save that was refused;
+    /// setting it when AllowSaves is disposed would claim a world was written by a scope that
+    /// wrapped nothing at all. Deleting the world outside Enter would leave either of those
+    /// claiming a file that is gone.
+    ///
+    /// A write must have happened and the file must still be there. Both halves are cheap and
+    /// neither can drift from the truth.
     /// </summary>
-    internal static bool PlanetWritten { get; private set; }
+    internal static bool PlanetWritten =>
+        UniverseWrites > 0 && System.IO.File.Exists(UniversePath);
+
+    /// <summary>
+    /// Where the current world's save file lives. Public because a test asserting on
+    /// persistence sometimes needs to look at the file itself, and reconstructing this path by
+    /// hand means duplicating the world name and the layout.
+    /// </summary>
+    public static string UniversePath =>
+        ProjectSettings.GlobalizePath($"user://Worlds/{CurrentWorldName}.universe");
 
     /// <summary>Skips a save unless the harness asked for it.</summary>
     internal static bool ShouldSave() => SaveRequested || !SuppressAutomaticSaves;
@@ -277,23 +303,14 @@ public static class Session
     {
         var previous = SaveRequested;
         SaveRequested = true;
-        return new SaveScope(previous, () => PlanetWritten = true);
+        return new SaveScope(previous);
     }
 
     private sealed class SaveScope : IDisposable
     {
         private readonly bool _previous;
-        private readonly Action _onDispose;
-        public SaveScope(bool previous, Action onDispose)
-        {
-            _previous = previous;
-            _onDispose = onDispose;
-        }
-        public void Dispose()
-        {
-            SaveRequested = _previous;
-            _onDispose();
-        }
+        public SaveScope(bool previous) => _previous = previous;
+        public void Dispose() => SaveRequested = _previous;
     }
 
     /// <summary>
@@ -375,7 +392,6 @@ public static class Session
         {
             SaveRequested = false;
         }
-        PlanetWritten = true;
         Log.Event("session", new()
         {
             ["phase"] = "saved",

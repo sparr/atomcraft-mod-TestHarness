@@ -74,4 +74,73 @@ public static class UnaskedSaveTests
 
         yield return Session.Leave();
     }
+
+    /// <summary>
+    /// A scope that wraps no save does not claim the world was written. The flag this replaced
+    /// was set when the scope was disposed, so an empty using block marked a world saved and
+    /// the next Reload would have loaded a file that does not exist.
+    /// </summary>
+    [GameTest]
+    public static IEnumerator AnEmptyAllowSavesScopeWritesNothing()
+    {
+        yield return Session.Enter("flat");
+
+        using (Session.AllowSaves())
+        {
+            // deliberately nothing
+        }
+
+        var refused = false;
+        var reload = Session.Reload();
+        try
+        {
+            while (reload.MoveNext()) { }
+        }
+        catch (AssertionException)
+        {
+            refused = true;
+        }
+
+        if (Session.Active)
+            yield return Session.Leave();
+
+        if (!refused)
+            throw new AssertionException(
+                "Reload accepted a world that was never written, so an empty AllowSaves scope " +
+                "is still claiming a save happened");
+    }
+
+    /// <summary>
+    /// Deleting the world behind the harness's back is noticed too. A tracked flag would still
+    /// be claiming the file is there.
+    /// </summary>
+    [GameTest]
+    public static IEnumerator DeletingTheWorldMakesItUnreloadableAgain()
+    {
+        yield return Session.Enter("flat");
+        Session.Save();
+
+        if (!System.IO.File.Exists(Session.UniversePath))
+            throw new AssertionException("the save did not produce a file, so this proves nothing");
+
+        System.IO.File.Delete(Session.UniversePath);
+
+        var refused = false;
+        var reload = Session.Reload();
+        try
+        {
+            while (reload.MoveNext()) { }
+        }
+        catch (AssertionException)
+        {
+            refused = true;
+        }
+
+        if (Session.Active)
+            yield return Session.Leave();
+
+        if (!refused)
+            throw new AssertionException(
+                "Reload accepted a world whose file had been deleted");
+    }
 }
