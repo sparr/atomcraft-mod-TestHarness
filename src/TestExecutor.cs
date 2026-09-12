@@ -378,6 +378,10 @@ public static class TestExecutor
         if (test.Failure != null)
             Log.Info($"FAILED {test.Name}\n{test.Failure}");
 
+        // Cleared here rather than at the start of the next test, so a test that fails or
+        // throws mid-way still leaves the simulation whole for whatever runs next.
+        SimFeatures.Reset();
+
         _current = null;
         _currentRegion = null;
     }
@@ -427,6 +431,10 @@ public static class TestExecutor
             FieldRegistry.ResetAll();
             StateRegistry.ResetAll();
         }
+
+        // Set per test and cleared when it ends, so a test that switches gravity off cannot
+        // leave the next one measuring a world that does not fall.
+        SimFeatures.Set(test.Attr.Disable);
 
         // World mode is global state, so it is set per test rather than once per run.
         if (Game.SaveData_World is SaveData_World world)

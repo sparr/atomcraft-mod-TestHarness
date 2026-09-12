@@ -65,6 +65,13 @@ public sealed class GameTestAttribute : Attribute
     /// </summary>
     public bool ResetModState { get; set; } = true;
 
+    /// <summary>
+    /// Parts of the simulation to switch off for this test: gravity and flow, heat spreading
+    /// between cells, the pull toward ambient temperature. Reset after the test, so one test
+    /// disabling something cannot quietly change what the next one measures.
+    /// </summary>
+    public SimFeature Disable { get; set; } = SimFeature.None;
+
     /// <summary>Skip with a stated reason, rather than deleting or commenting out.</summary>
     public string? Skip { get; set; }
 

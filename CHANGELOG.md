@@ -90,6 +90,10 @@ unanchored.
 - **`TickSpec.When`**, choosing whether a per-tick pass runs before or after the quadrant
   passes. Before is where `FlagActiveChunks` sits in the real game, which is how a mod's own
   movement takes precedence over gravity.
+- **`SimFeature` and `SimFeatures.Disable`**, switching off movement, heat conductance, or the
+  pull toward ambient temperature, per test through `[GameTest(Disable = ...)]` or per scope.
+  Movement patches only the tail of a material's `Step`, so reactions and the rest still run,
+  and a material overriding `StepSolid` or `StepLiquid` is unaffected.
 - **`--atomtest-exclude`**, the same kind of pattern as the filter, applied after it and winning
   over it for a test both match.
 - `Region.ConveyInto`, the only way to reach a material's `OnImpact`.

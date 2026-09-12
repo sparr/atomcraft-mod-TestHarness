@@ -192,6 +192,29 @@ r.PinnedHeat = 400;                    // hold a temperature against decay
 Assertions throw `AssertionException`; anything else escaping a test also fails it. There is
 no assertion library to install.
 
+### Switching off part of the simulation
+
+A mod's own pass is hard to watch while gravity rearranges the scene underneath it, and a
+temperature is hard to hold while the ambient pull drags it back.
+
+```csharp
+[GameTest(Disable = SimFeature.Movement | SimFeature.AmbientHeat)]
+public static void MyPassInIsolation(Region r) { ... }
+
+using (SimFeatures.Disable(SimFeature.HeatConductance))   // part of a test only
+    r.Ticks(60);
+```
+
+`Movement` is falling, flowing, and rising; `HeatConductance` is heat spreading between cells;
+`AmbientHeat` is the decay toward the planet's temperature. Movement is only the tail of a
+material's `Step`, so reactions, decay, ignition, condensation, evaporation, combustion, and
+growth all still run. Settings are cleared when a test ends, including one that failed.
+
+Two things to know. A material that overrides `StepSolid` or `StepLiquid`, including your own,
+keeps moving: the switch patches the base implementation. And `Region.PinnedHeat` predates
+this and papers over the same problem by rewriting heat every tick; `SimFeature.AmbientHeat`
+removes the cause instead, and is usually what you want.
+
 ### Things that will bite you
 
 **Prefer `TicksUntil` to a tick count.** It states what the test expects, stops as soon as
