@@ -118,6 +118,15 @@ version constraint and the 0.x API changes between minor versions:
 public static void Initialize() => Harness.RequireVersion("0.3");
 ```
 
+A mismatch fails every test in your mod with a message naming both versions, rather than only
+refusing the mod: the loader loads your assembly before calling `Initialize`, so the harness
+would otherwise discover and run your tests against a harness that registered none of your
+channels, patches, or materials. They are failed rather than skipped, because a skipped test
+leaves the run green and a mod that ran nothing would report success.
+
+The check compares major and minor only, so `"0.3"` matches every 0.3.x. Install the new
+harness and change the pin together.
+
 Reference the harness assembly, and ship nothing but your own DLL and `mod.json`:
 
 ```xml
