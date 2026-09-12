@@ -51,8 +51,64 @@ public static class WorldFixtures
     [HarmonyPatch(typeof(FileManager), nameof(FileManager.SaveGame))]
     internal static class SuppressAutomaticSaves
     {
-        private static bool Prefix() => Session.ShouldSave();
+        private static bool Prefix() => Session.AllowWrite("FileManager.SaveGame");
     }
+
+    /// <summary>
+    /// And the one that SaveGame does not cover: creating a world writes it straight back out.
+    ///
+    /// LoadOrCreatePlanetAsync generates the field and then calls SavePlanet with
+    /// forceSaveAllSegments, so a fresh Enter pays for all 1536 segments before the test has done
+    /// anything. Measured at 2.5 seconds of a 3.3 second fresh entry. It reaches SavePlanet
+    /// directly rather than through SaveGame, so the patch above never sees it.
+    ///
+    /// A test that wants the world on disk calls Session.Save, which sets SaveRequested and so
+    /// passes this predicate too. A test that reloads without ever saving would previously have
+    /// found the generated world waiting for it; Session.Reload now refuses that case with an
+    /// explanation rather than loading a planet with no segments in it.
+    /// </summary>
+    internal static void SuppressCreationSave(Harmony harmony)
+    {
+        var target = AccessTools.Method(typeof(FileManager), "SavePlanet");
+        if (target == null)
+        {
+            Log.Warn("FileManager.SavePlanet not found; world creation will save all segments");
+            return;
+        }
+        harmony.Patch(target, prefix: new HarmonyMethod(
+            typeof(WorldFixtures), nameof(SkipUnlessAsked)));
+    }
+
+    private static bool SkipUnlessAsked() => Session.AllowWrite("FileManager.SavePlanet");
+
+    /// <summary>
+    /// The backstop, on the one method every write funnels through.
+    ///
+    /// SaveGame and SavePlanet are gated above because stopping there also skips serializing
+    /// 1536 segments, which is where the time goes. This gate saves no work; it exists because
+    /// enumerating entry points is how the previous gap happened. SavePlanet reached disk
+    /// without passing through SaveGame and nobody noticed until a fresh world was found to
+    /// cost two and a half seconds. WriteUniverseToDisk is where SaveWorldHeader, SavePlanet,
+    /// SaveMap, and FlushUniverseToDisk all end up, so a path nobody enumerated still stops
+    /// here.
+    ///
+    /// It logs when it fires, so a write the harness did not expect is visible rather than
+    /// merely absent.
+    /// </summary>
+    internal static void SuppressUnaskedWrites(Harmony harmony)
+    {
+        var target = AccessTools.Method(typeof(FileManager), "WriteUniverseToDisk");
+        if (target == null)
+        {
+            Log.Warn("FileManager.WriteUniverseToDisk not found; unenumerated save paths will " +
+                     "still reach disk");
+            return;
+        }
+        harmony.Patch(target, prefix: new HarmonyMethod(
+            typeof(WorldFixtures), nameof(RefuseUnaskedWrite)));
+    }
+
+    private static bool RefuseUnaskedWrite() => Session.AllowWrite("FileManager.WriteUniverseToDisk");
 
     public static void Install(Harmony harmony)
     {
@@ -63,6 +119,8 @@ public static class WorldFixtures
             return;
         }
         harmony.Patch(target, prefix: new HarmonyMethod(typeof(WorldFixtures), nameof(Prefix)));
+        SuppressCreationSave(harmony);
+        SuppressUnaskedWrites(harmony);
         Log.Info($"world fixtures available: {string.Join(", ", Builders.Keys)}");
     }
 

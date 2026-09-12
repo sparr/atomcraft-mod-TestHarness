@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using System.Linq;
 using Atomcraft;
 using Godot;
@@ -55,7 +56,19 @@ public static class Session
         // fixture would silently apply only the first time and every later run would test
         // whatever the last one left behind. Reloading deliberately keeps it.
         if (fresh)
+        {
             DeleteFixtureWorld();
+            PlanetWritten = false;
+
+            // And drop the cached universe with it. FileManager keeps the last universe it
+            // loaded in a static, and deleting the files on disk does not touch it, so a fresh
+            // world generated after a test that saved would inherit that test's 1536 segments in
+            // memory and flush every one of them back out as part of its own creation. Measured
+            // at 2.5 seconds per fresh entry, against 90 ms once the cache is cleared. It is a
+            // correctness point as much as a speed one: a world called fresh should not be
+            // carrying the previous world's contents.
+            ForgetCachedUniverse();
+        }
         WorldFixtures.Active = fixture;
 
         var world = new SaveData_World
@@ -80,6 +93,7 @@ public static class Session
         }
 
         Log.Info($"entering fixture world '{fixture}' in {mode} mode (fresh: {fresh})");
+        var watch = Stopwatch.StartNew();
         Game.LoadWorldHeaderData(world);
         Game.StartHostSession(null, null, isOnline: false);
 
@@ -98,6 +112,7 @@ public static class Session
             ["fixture"] = fixture,
             ["mode"] = mode.ToString(),
             ["tick"] = Simulation.CurrentState?.Tick ?? -1,
+            ["ms"] = watch.ElapsedMilliseconds,
         });
     }
 
@@ -145,10 +160,11 @@ public static class Session
         if (!Active)
             yield break;
 
+        var watch = Stopwatch.StartNew();
         Game.Instance.ExitToMainMenu();
         yield return Wait.Until(() => !Game.SessionActive, "the session to end");
         WorldFixtures.Active = null;
-        Log.Event("session", new() { ["phase"] = "left" });
+        Log.Event("session", new() { ["phase"] = "left", ["ms"] = watch.ElapsedMilliseconds });
     }
 
     /// <summary>Planet segments are saved in 128x128 blocks.</summary>
@@ -166,8 +182,119 @@ public static class Session
     /// <summary>True while a save the harness asked for is running.</summary>
     internal static bool SaveRequested { get; private set; }
 
+    /// <summary>
+    /// Whether the current world has been written to disk since it was generated.
+    ///
+    /// Creating a world no longer saves it (see WorldFixtures.SuppressCreationSave), so a reload
+    /// is only meaningful after a Save. Without this the failure would be a world that loads with
+    /// no planet segments, which looks like a bug in whatever the test was actually checking.
+    /// </summary>
+    internal static bool PlanetWritten { get; private set; }
+
     /// <summary>Skips a save unless the harness asked for it.</summary>
     internal static bool ShouldSave() => SaveRequested || !SuppressAutomaticSaves;
+
+    /// <summary>
+    /// The mod that last had a save refused, or null if none has. Exposed so this is testable
+    /// without scraping the log.
+    /// </summary>
+    public static string? LastUnaskedSaveCaller { get; private set; }
+
+    /// <summary>
+    /// Decides whether a save may proceed, and says something useful when it may not.
+    ///
+    /// A refused save is usually the game's own, at dawn or on the way out of a session, and
+    /// that is unremarkable. It is worth a warning when the caller is a mod, because then
+    /// somebody wrote a save call and is about to wonder why nothing was written.
+    ///
+    /// Naming the caller is a guess from the stack, which is fine for a message and would not
+    /// be fine for the decision itself: the mod loader patches the save path too, so its frames
+    /// can appear in a stack that has no test in it. A wrong guess here costs a misleading
+    /// sentence, not a save that silently did or did not happen.
+    /// </summary>
+    internal static bool AllowWrite(string what)
+    {
+        if (ShouldSave())
+            return true;
+
+        var caller = ForeignCaller();
+        if (caller != null)
+        {
+            LastUnaskedSaveCaller = caller;
+            Log.Warn(
+                $"{what} was called from {caller}, which is not the game, and the harness " +
+                "suppressed it. Automatic saves are off so a test does not pay for writing a " +
+                "world it does not care about. If this save was deliberate, call Session.Save, " +
+                "or wrap the call in Session.AllowSaves() to let it through.");
+        }
+        else
+        {
+            Log.Info($"suppressed {what} (the game's own save)");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The first assembly on the stack that is neither the game, nor the harness, nor the
+    /// machinery that sits between them. That is a mod or a test mod, and so a human who meant
+    /// something by it.
+    /// </summary>
+    private static string? ForeignCaller()
+    {
+        var ours = new[] { "Atomcraft", "GodotSharp", "0Harmony", "GodotMonoModLoader" };
+
+        foreach (var frame in new StackTrace().GetFrames() ?? Array.Empty<StackFrame>())
+        {
+            var assembly = frame.GetMethod()?.DeclaringType?.Assembly;
+            var name = assembly?.GetName().Name;
+
+            if (name == null || assembly == typeof(Session).Assembly) continue;
+            if (ours.Contains(name)) continue;
+            if (name.StartsWith("System") || name.StartsWith("Microsoft") || name == "mscorlib") continue;
+
+            return name;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lets saves through for as long as the returned scope lives, for a test that calls the
+    /// game's own save API rather than Session.Save.
+    ///
+    /// Suppression cannot tell a test calling FileManager.SaveGame from the game autosaving at
+    /// dawn, because both arrive as the same call. Rather than guess from the call stack, which
+    /// would be wrong in whichever direction is least obvious, a test says so:
+    ///
+    ///     using (Session.AllowSaves())
+    ///         FileManager.SaveGame(Simulation.CurrentState, forceSaveAllSegments: true);
+    ///
+    /// Note this bypasses the first-save-complete rule in Save, so pass
+    /// forceSaveAllSegments: true on a world that has not been saved before.
+    /// </summary>
+    public static IDisposable AllowSaves()
+    {
+        var previous = SaveRequested;
+        SaveRequested = true;
+        return new SaveScope(previous, () => PlanetWritten = true);
+    }
+
+    private sealed class SaveScope : IDisposable
+    {
+        private readonly bool _previous;
+        private readonly Action _onDispose;
+        public SaveScope(bool previous, Action onDispose)
+        {
+            _previous = previous;
+            _onDispose = onDispose;
+        }
+        public void Dispose()
+        {
+            SaveRequested = _previous;
+            _onDispose();
+        }
+    }
 
     /// <summary>
     /// Writes a pixel and marks its segment dirty, so an incremental save includes it.
@@ -222,7 +349,24 @@ public static class Session
     {
         if (!Active)
             throw new AssertionException("not in a session");
+
+        // The first save of a generated world is always complete, whatever was asked for.
+        // Creating a world no longer serializes its segments, so nothing else has ever put
+        // them in the universe; an incremental save writes only what
+        // Simulation.DirtyPlanetSegmentOrigins holds, which after worldgen is just what this
+        // test touched. The reload then returns those few segments and air everywhere else,
+        // and the assertion that would notice is the one that passes: the test's own pixels
+        // are exactly the ones that were saved.
+        if (incremental && !PlanetWritten)
+        {
+            Log.Info("first save of this world: saving every segment rather than only the " +
+                     "dirty ones, because worldgen never wrote them and an incremental save " +
+                     "would leave the rest of the planet absent from the file");
+            incremental = false;
+        }
+
         SaveRequested = true;
+        var watch = Stopwatch.StartNew();
         try
         {
             FileManager.SaveGame(Simulation.CurrentState, forceSaveAllSegments: !incremental);
@@ -231,7 +375,14 @@ public static class Session
         {
             SaveRequested = false;
         }
-        Log.Event("session", new() { ["phase"] = "saved", ["incremental"] = incremental });
+        PlanetWritten = true;
+        Log.Event("session", new()
+        {
+            ["phase"] = "saved",
+            // What happened, not what was requested: the first save is forced complete.
+            ["incremental"] = incremental,
+            ["ms"] = watch.ElapsedMilliseconds,
+        });
     }
 
     /// <summary>
@@ -259,6 +410,14 @@ public static class Session
     /// </summary>
     public static IEnumerator Reload(string fixture = "flat", WorldMode mode = WorldMode.Creative)
     {
+        if (!PlanetWritten)
+            throw new AssertionException(
+                "this world has never been saved, so there is nothing on disk to reload. " +
+                "Generating a world no longer writes it out, because doing so cost every session " +
+                "test about two and a half seconds it did not ask for. Call Session.Save first, " +
+                "or use Session.SaveAndReload. Session.AllowSaves covers a test that saves " +
+                "through the game's own API rather than through Session.Save.");
+
         yield return Leave();
 
         // Without this the re-entry never touches the save file. FileManager caches the
