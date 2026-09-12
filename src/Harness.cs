@@ -10,7 +10,15 @@ namespace Atomcraft.TestHarness;
 /// </summary>
 public static class Harness
 {
-    public const string Version = ModEntry.Version;
+    /// <summary>
+    /// The running harness's version.
+    ///
+    /// Deliberately not a const. A const is inlined into whatever compiles against it, so a mod
+    /// built against one harness and run against another would read the version it was built
+    /// with and have no way to notice. That is the exact confusion RequireVersion exists to
+    /// prevent, and it would be the harness handing it out.
+    /// </summary>
+    public static readonly string Version = ModEntry.Version;
 
     /// <summary>
     /// Fails immediately unless the running harness matches the version a mod was built

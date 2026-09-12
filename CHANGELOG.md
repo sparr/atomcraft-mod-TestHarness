@@ -2,10 +2,10 @@
 
 The API is public and **deliberately unstable through 0.x**. Breaking changes are expected
 between minor versions and are listed first in each entry. Consumers should call
-`Harness.RequireVersion("0.2")` from their `Initialize`, so a mismatch is reported clearly
+`Harness.RequireVersion("0.3")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
 
-## Unreleased
+## 0.3.0
 
 Driven by a second round of the Pressure mod's needs document, and by testing the harness
 against the other mods in the AtomcraftMods repository. Several entries below are bugs in the
@@ -58,6 +58,9 @@ unanchored.
   assertion is about slopes. Reported by an RNG-modifying mod.
 - `FieldRegistry` gains the `Unregister` the other two registries always had.
 
+- **`Harness.Version` is read at runtime rather than inlined.** It was a `const`, so a mod
+  compiled against one harness and run against another reported the version it was built with,
+  which is the confusion `RequireVersion` exists to prevent.
 - **Generating a world no longer writes it to disk.** Creating one serialized all 1536 planet
   segments and flushed them, about two and a half seconds every fresh session entry, by a path
   that reached `SavePlanet` without passing the existing suppression. A fresh entry also
