@@ -9,13 +9,14 @@ cd "$(dirname "$0")"
 . lib/common.sh
 load_config
 
-BUILD=1; TIMEOUT=300; CORES=""; DETERMINISM=0; GAME_ARGS=(--atomtest-run); STAGE_MODS=()
+BUILD=1; TIMEOUT=300; CORES=""; DETERMINISM=0; HEADFUL=0; GAME_ARGS=(--atomtest-run); STAGE_MODS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build)   BUILD=0; shift ;;
     --timeout)    TIMEOUT="$2"; shift 2 ;;
     --cores)      CORES="$2"; shift 2 ;;
     --determinism) DETERMINISM=1; shift ;;
+    --headful)    HEADFUL=1; shift ;;
     --mod)        STAGE_MODS+=("$2"); shift 2 ;;
     --force-exit) GAME_ARGS+=("--atomtest-force-exit=$2"); shift 2 ;;
     --) shift; GAME_ARGS+=("$@"); break ;;
@@ -152,8 +153,9 @@ BOOT_WATCHER=$!
 watch_log_size &
 WATCHER=$!
 
+HEADFUL_ARGS=(); [ "$HEADFUL" = 1 ] && HEADFUL_ARGS=(--headful)
 set +e
-./run-game.sh --timeout "$TIMEOUT" "${CORE_ARGS[@]}" -- -- "${GAME_ARGS[@]}" >"$OUT/run.log" 2>&1
+./run-game.sh "${HEADFUL_ARGS[@]}" --timeout "$TIMEOUT" "${CORE_ARGS[@]}" -- -- "${GAME_ARGS[@]}" >"$OUT/run.log" 2>&1
 launch_rc=$?
 set -e
 kill "$WATCHER" "$BOOT_WATCHER" 2>/dev/null || true
