@@ -252,6 +252,11 @@ public static class TestExecutor
 
         try
         {
+            // Before Pin and region allocation: an abstention should cost nothing.
+            if (test.Attr.RequiresDisplay && DisplayServer.GetName() == "headless")
+                throw new InapplicableException(
+                    "this test asserts on rendered UI and needs a display; run with --headful");
+
             Pin(test);
 
             var parameters = test.Method.GetParameters();
@@ -322,6 +327,11 @@ public static class TestExecutor
 
         try
         {
+            // Holds run on every frame of the test, including the ones it spends waiting;
+            // that is their whole point (see FrameHolds). Inside the try, because a hold
+            // that cannot keep its promise fails the test the same as an assertion would.
+            FrameHolds.Run();
+
             if (_waiting != null)
             {
                 _waiting.Tick();
@@ -361,6 +371,7 @@ public static class TestExecutor
         var test = _current!;
         _running.Clear();
         _waiting = null;
+        FrameHolds.Clear();
         ExceptionSuppressor.Context = "run";
         _watch?.Stop();
         test.ElapsedMs = _watch?.ElapsedMilliseconds ?? 0;

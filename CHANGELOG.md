@@ -7,8 +7,42 @@ instead of surfacing later as a `MissingMethodException`.
 
 ## Unreleased
 
-Nothing yet. `main` reports `0.4.0-dev`, so a mod pinned to `"0.3"` is refused here and should
-stay on the v0.3.0 release until there is something to move for.
+`main` reports `0.4.0-dev`, so a mod pinned to `"0.3"` is refused here and should stay on the
+v0.3.0 release until there is something to move for.
+
+First-class headful GUI testing, from the needs writeup in `HEADFUL-GUI-TESTING.md`. A test
+that asserts on live UI no longer reaches into game internals for any of it:
+
+### Added
+
+- **`[GameTest(RequiresDisplay = true)]`.** The runner ends such a test with no verdict under
+  a headless display server, before its body runs, so the ordinary suite stays green and a
+  `--headful` run is where it counts. Tests no longer sniff `DisplayServer` themselves.
+- **`View.LookAt(tile)`** aims the view at a tile and holds it there for the rest of the
+  test. The game's view is built entirely around the avatar (the camera is leashed to within
+  200 units of it, and the render and fog windows are computed from its tile), so the hold
+  anchors the avatar just above the target every frame with its momentum zeroed, re-closes
+  any window that opens, and clears the tile of fog of war first. `View.Release()` undoes it
+  early; ending the test undoes it always.
+- **`View.RevealFog(tile, radius)`.** Fog of war turns out to be fog material in the
+  simulation field, so revealing a spot is a world edit: fog pixels become air, with enough
+  margin that the blurred fog mask cannot reach back over the asked-for cell.
+- **`Cursor.Hover(tile)`** warps the mouse to a tile through the current camera and completes
+  only once `Utils.GetTileMousePosition()` has agreed for a few consecutive frames, so a test
+  places one pixel and trusts the game is reading it, instead of a block sized to absorb
+  drift.
+- **`Hud.HoverBoxVisible` / `Hud.HoverBoxText()`** read the hover box the player sees. The
+  reflection into the game's private label lives here alone, and
+  `Hud.HoverBoxLabelFieldExists` lets the headless suite catch the game renaming it.
+- **`Session.CloseAllWindows()`** closes whatever UI window a fresh session opened, one-shot;
+  `View.LookAt` is the held version.
+
+### Fixed
+
+- **`Session.Enter` drains the game's stale audio buffers itself.** Pixel-movement audio
+  counts accumulated during sessionless region tests reached the first session frame before
+  `Game.LocalAvatar` existed and crashed `Audio.Process`; every session-entering test carried
+  the same reflective drain as a workaround, and none has to now.
 
 ## 0.3.0
 

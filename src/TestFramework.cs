@@ -76,6 +76,14 @@ public class GameTestAttribute : Attribute
     public string? Skip { get; set; }
 
     /// <summary>
+    /// This test asserts on rendered UI and needs a real display. Under a headless run it
+    /// ends with no verdict rather than failing, so the ordinary suite stays green and a
+    /// headful run (run-tests.sh --headful) is where it counts. The runner decides from
+    /// the display server itself, so a test never has to sniff it.
+    /// </summary>
+    public bool RequiresDisplay { get; set; }
+
+    /// <summary>
     /// Frames a frame-driven test may run before it is failed as hung. Generous by default:
     /// loading a world takes a while, and a test that genuinely needs longer should say so
     /// rather than be cut off.

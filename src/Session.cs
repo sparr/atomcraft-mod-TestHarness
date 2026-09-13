@@ -50,6 +50,8 @@ public static class Session
         if (Active)
             throw new AssertionException("already in a session; leave it before entering another");
 
+        DrainStaleAudio();
+
         CurrentWorldName = worldName ?? WorldName;
 
         // A world saved by an earlier run would be loaded instead of generated, so the
@@ -114,6 +116,45 @@ public static class Session
             ["tick"] = Simulation.CurrentState?.Tick ?? -1,
             ["ms"] = watch.ElapsedMilliseconds,
         });
+    }
+
+    /// <summary>
+    /// Clears the game's per-frame audio buffers before a session starts.
+    ///
+    /// A game bug, centralized here so no test carries the workaround: pixel-movement audio
+    /// counts accumulate while region tests run sessionless, and the first session frame
+    /// processes them before Game.LocalAvatar exists, which crashes Audio.Process with a
+    /// NullReferenceException. Draining costs nothing when the buffers are already empty.
+    /// </summary>
+    private static void DrainStaleAudio()
+    {
+        foreach (var name in new[] { "AudioEventsForFrame", "MaterialAudioTypeInstancesForFrame" })
+        {
+            var field = typeof(Audio).GetField(name,
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (field == null)
+                Log.Warn($"Audio.{name} is gone; if session entry crashes in Audio.Process, " +
+                         "the game changed shape and Session.DrainStaleAudio needs updating");
+            else if (field.GetValue(null) is System.Collections.IList list)
+                list.Clear();
+            else if (field.GetValue(null) is System.Collections.IDictionary map)
+                map.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Closes every open UI window, so the plain playfield is what is on screen.
+    ///
+    /// A fresh session does not start on one: a welcome or hub window is up, and while any
+    /// window is visible Gameplay.WindowIsOpen both pauses the simulation and hides
+    /// under-cursor UI like the hover box. Note a closed window can reopen on later frames;
+    /// a test that needs the view held clean should be under <see cref="View.LookAt"/>,
+    /// which re-closes them every frame.
+    /// </summary>
+    public static void CloseAllWindows()
+    {
+        foreach (var window in Gameplay.Windows)
+            window.Visible = false;
     }
 
     /// <summary>

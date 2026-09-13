@@ -82,7 +82,12 @@ server restart, not on save.
 ./run-tests.sh -- --atomtest-filter=Blood   # matching tests only
 ./run-tests.sh --determinism            # same scene twice, and across core counts
 ./run-tests.sh --cores 2                # pretend to be a small CI runner
+./run-tests.sh --headful                # with a display, for tests that assert on live UI
 ```
+
+`--headful` brings up a private Xvfb framebuffer with muted audio, so nothing lands on your
+actual screen. Tests marked `RequiresDisplay` only judge anything under this flag; see
+[Tests that need a screen](#tests-that-need-a-screen).
 
 Exit code is the suite's: 0 clean, 1 a test failed, the run selected no tests, **or nothing
 was judged**, 70 the harness crashed, 71 an engine exception storm, 72 the engine logged
@@ -421,6 +426,49 @@ written at 800 K comes back at whatever ambient is there.
 
 `./run-tests.sh --determinism` runs the suite at two core counts and compares the recorded
 checksums.
+
+## Tests that need a screen
+
+Almost nothing does. What headless cannot show is whether a piece of UI actually appears on
+screen past the game's own gating: the hover box, for one, refuses to draw when a window is
+open or the cursor is over HUD or fog, and rebuilds its text every frame from the tile under
+the mouse. A test asserting on that runs the real game with a display and reads the live UI:
+
+```csharp
+[GameTest(RequiresDisplay = true)]
+public static IEnumerator DensityShowsInTheHoverBox()
+{
+    yield return Session.Enter("flat");
+    var tile = new Vector2I(3000, 4990);
+
+    Session.SetPixel(tile.X, tile.Y, "Granite");
+
+    yield return View.LookAt(tile);      // camera pinned there, windows held closed, fog lifted
+    yield return Cursor.Hover(tile);     // completes once the game agrees the mouse is over it
+
+    if (!Hud.HoverBoxVisible)
+        throw new AssertionException("the hover box is not shown");
+    if (!Hud.HoverBoxText().Contains("Granite"))
+        throw new AssertionException($"the box does not name the material: {Hud.HoverBoxText()}");
+}
+```
+
+`RequiresDisplay` makes the test abstain, before its body runs, whenever the display server
+is headless, so the ordinary suite stays green and `./run-tests.sh --headful` is where it
+counts.
+
+`View.LookAt` holds rather than sets, and it holds the *avatar*: the game's camera is leashed
+to within 200 units of the avatar and the render and fog windows are computed from its tile,
+so there is no looking somewhere the avatar is not. Every frame until the test ends the hold
+re-anchors the avatar just above the tile (momentum zeroed, so gravity cannot accumulate),
+re-closes any window the game opens, and it cleared fog of war around the tile first. Fog is
+fog *material* in the field, so `View.RevealFog(tile, radius)` is an ordinary world edit
+available on its own too, as is the one-shot `Session.CloseAllWindows()`.
+
+`Cursor.Hover` finishes only once `Utils.GetTileMousePosition()` has returned the target for
+a few consecutive frames, because warping the OS cursor is not the same as the game reading
+it there. If the view is not pinned it never settles, and the test times out reporting
+exactly that.
 
 ## Mod state
 

@@ -76,7 +76,12 @@ public static class Harness
     ///
     /// Recorded as its own status rather than as a pass, since a passing test is a claim that
     /// something was checked. A run in which nothing was judged does not exit 0.
+    ///
+    /// DoesNotReturn so a test's null checks flow through it: a test that abstains when
+    /// something is missing should not then be warned for dereferencing the thing it just
+    /// proved present.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     public static void Inapplicable(string reason) => throw new InapplicableException(reason);
 
     private static bool Matches(string expected, string actual)
