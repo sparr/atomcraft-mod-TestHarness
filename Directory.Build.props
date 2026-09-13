@@ -1,9 +1,14 @@
 <Project>
+  <!-- Derives GameInstallDir from atomcraft-test.conf when nothing else set it, so IDE
+       design-time builds resolve the game assemblies. -->
+  <Import Project="$(MSBuildThisFileDirectory)msbuild/GameInstall.props" />
+
   <PropertyGroup>
     <!-- Where the game is installed. No default: installs differ by store, platform, and
-         user. Supplied by run-tests.sh from GAME_DIR in atomcraft-test.conf, or set
-         explicitly with -p:GameInstallDir=... MSBuild also picks this up from the
-         environment automatically. -->
+         user. Supplied by run-tests.sh from GAME_DIR in atomcraft-test.conf, set
+         explicitly with -p:GameInstallDir=..., or derived from the conf by
+         msbuild/GameInstall.props. MSBuild also picks this up from the environment
+         automatically. -->
     <GameDataDir Condition="'$(GameInstallDir)' != ''">$(GameInstallDir)/data_Atomcraft_windows_x86_64</GameDataDir>
     <ModId>TestHarness</ModId>
   </PropertyGroup>

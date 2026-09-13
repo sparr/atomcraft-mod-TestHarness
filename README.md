@@ -70,6 +70,11 @@ tests run against a throwaway prefix so your saves and blueprints are untouchabl
 
 Re-run `./bootstrap.sh` after a game update.
 
+Once the config has a `GAME_DIR`, MSBuild reads it too (via `msbuild/GameInstall.props`), so
+an IDE's design-time builds and a bare `dotnet build` resolve the game assemblies without
+going through the scripts. The VSCode C# extension picks up config edits after a language
+server restart, not on save.
+
 ## Running
 
 ```sh

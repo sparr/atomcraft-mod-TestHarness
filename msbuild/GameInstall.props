@@ -1,0 +1,29 @@
+<Project>
+  <!-- MSBuild-side mirror of lib/common.sh load_config, so IDE design-time builds and a
+       bare `dotnet build` resolve the game install without going through the shell
+       scripts. Reads only GAME_DIR, with the same precedence: environment, then the file
+       named by ATOMCRAFT_TEST_CONF, then this checkout's atomcraft-test.conf, then the
+       per-user config. -p:GameInstallDir=... is a global property and wins over all of
+       this, so build-mod.sh and run-tests.sh behave exactly as before.
+
+       Only double-quoted GAME_DIR="..." assignments are recognized, the form the example
+       and bootstrap.sh detection emit. Anything else leaves GameInstallDir unset and the
+       RequireGameInstallDir error explains what to do. Deliberately no install detection
+       here: detection proposes, the user ratifies in the conf, and this file sits
+       downstream of that ratification. -->
+  <PropertyGroup Condition="'$(GameInstallDir)' == ''">
+    <GameInstallDir Condition="'$(GAME_DIR)' != ''">$(GAME_DIR)</GameInstallDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GameInstallDir)' == ''">
+    <_AtomcraftConf Condition="'$(ATOMCRAFT_TEST_CONF)' != '' and Exists('$(ATOMCRAFT_TEST_CONF)')">$(ATOMCRAFT_TEST_CONF)</_AtomcraftConf>
+    <_AtomcraftConf Condition="'$(_AtomcraftConf)' == '' and Exists('$(MSBuildThisFileDirectory)../atomcraft-test.conf')">$(MSBuildThisFileDirectory)../atomcraft-test.conf</_AtomcraftConf>
+    <_XdgConfigHome>$(XDG_CONFIG_HOME)</_XdgConfigHome>
+    <_XdgConfigHome Condition="'$(_XdgConfigHome)' == ''">$(HOME)/.config</_XdgConfigHome>
+    <_AtomcraftConf Condition="'$(_AtomcraftConf)' == '' and Exists('$(_XdgConfigHome)/atomcraft-test/config')">$(_XdgConfigHome)/atomcraft-test/config</_AtomcraftConf>
+
+    <_GameDirRaw Condition="'$(_AtomcraftConf)' != ''">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_AtomcraftConf)')), '(?m)^\s*GAME_DIR="([^"\r\n]+)"').Groups[1].Value)</_GameDirRaw>
+    <GameInstallDir Condition="'$(_GameDirRaw)' != ''">$(_GameDirRaw.Replace('$HOME', '$(HOME)').Replace('${HOME}', '$(HOME)'))</GameInstallDir>
+    <GameInstallDir Condition="'$(GameInstallDir)' != ''">$([System.Text.RegularExpressions.Regex]::Replace('$(GameInstallDir)', '^~(?=/)', '$(HOME)'))</GameInstallDir>
+  </PropertyGroup>
+</Project>
