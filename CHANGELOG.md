@@ -15,16 +15,19 @@ that asserts on live UI no longer reaches into game internals for any of it:
 
 ### Added
 
-- **Two larger bitmap fonts, and a label that sizes itself.** `TextSize` now names a font
-  rather than a scale factor: `Small` (3x5 on a 4x6 grid), `Medium` (5x7 on 7x9), and `Large`
-  (9x13 on 12x16, with a real descender zone). They are separate fonts, not one font scaled,
-  because a 3x5 glyph magnified is still a 3x5 glyph; 9x13 buys round bowls, real diagonals,
-  and lowercase `g`, `j`, `p`, `q`, `y` that drop below the baseline instead of being folded
-  into the body. `Overlay.Label` defaults to `TextSize.Auto`, the largest size that fits the
-  cell, resolved when the mark is drawn so a retained label keeps choosing correctly as the
-  view zooms; naming a size fixes it, and `scale` multiplies whichever size is used. When
-  nothing fits, `Small` is drawn anyway rather than nothing. `Overlay.FontFor` resolves what
-  `Auto` would pick, and `PixelFont.Small`/`Medium`/`Large` expose each font's metrics.
+- **Three bitmap fonts, and a label that sizes itself.** `TextSize` names a font rather than
+  a scale factor: `Small` (3x5 on a 4x6 grid), `Medium` (5x7 on 7x9), and `Large` (9x13 on
+  12x16, with a real descender zone). They are separate fonts, not one font scaled, because a
+  3x5 glyph magnified is still a 3x5 glyph; 9x13 buys round bowls, real diagonals, and
+  lowercase `g`, `j`, `p`, `q`, `y` that drop below the baseline instead of being folded into
+  the body. Each is drawn at whole-number scales from whole-number screen positions through a
+  nearest-neighbor filter, so a font pixel is an exact block of screen pixels at any zoom.
+  `Overlay.Label` defaults to `TextSize.Auto`, the largest size that fits the cell, resolved
+  when the mark is drawn so a retained label keeps choosing correctly as the view zooms;
+  naming a size fixes it, and `scale` multiplies whichever size is used. When nothing fits,
+  `Small` is drawn anyway rather than nothing. `Overlay.MeasureLabel` sizes a label,
+  `Overlay.FontFor` resolves what `Auto` would pick, and `PixelFont.Small`/`Medium`/`Large`
+  expose each font's metrics.
 - **`[GameTest(RequiresDisplay = true)]`.** The runner ends such a test with no verdict under
   a headless display server, before its body runs, so the ordinary suite stays green and a
   `--headful` run is where it counts. Tests no longer sniff `DisplayServer` themselves.
@@ -80,11 +83,6 @@ to be running:
   does the end of a test. `Overlay.Reset()` is the total version, dropping painters too, and
   is what the end of a test actually runs: a mod's own debug painter across every test's
   screenshot would make those screenshots evidence of something other than the test.
-- **`TextSize.Tiny`** is a 3x5 bitmap glyph on a 4x6 grid, with `Small`, `Medium` and `Large`
-  at two, three and four times that. Drawn at whole-number scales from whole-number screen
-  positions through a nearest-neighbor filter, so every font pixel is an exact block of screen
-  pixels at any zoom. A Tiny character fits inside one cell from about 6x zoom.
-  `Overlay.MeasureLabel` sizes a label, and `PixelFont` exposes the metrics.
 - **`Overlay.SetPainter(name, painter, when)`** runs a callback for every cell on screen,
   every frame, handing it a **`VisiblePixel`**: the tile, the material in it, the screen
   rectangle it covers, and `Fill`/`Outline`/`Label` for that one cell. This is how a mod draws

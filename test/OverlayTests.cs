@@ -310,12 +310,12 @@ public static class OverlayTests
                 throw new AssertionException(
                     $"a cell should be {expected} screen pixels at this zoom, is {View.CellScreenSize}");
 
-            // A whole Tiny label has to fit inside one cell at this zoom; that is the claim
-            // the smallest font size is making.
+            // A whole Small label has to fit inside one cell at this zoom; that is the claim
+            // the smallest font is making.
             var label = Overlay.MeasureLabel("1234", TextSize.Small);
             if (label.X > View.CellScreenSize)
                 throw new AssertionException(
-                    $"a four character Tiny label is {label.X} pixels wide but a cell is only " +
+                    $"a four character Small label is {label.X} pixels wide but a cell is only " +
                     $"{View.CellScreenSize}");
         }
         finally
