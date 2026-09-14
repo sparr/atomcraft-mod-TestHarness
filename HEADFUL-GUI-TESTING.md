@@ -14,6 +14,19 @@
 > the avatar was still falling near the spaceship, and the sampled hover tile followed the
 > real, leashed camera.) The rest of the document is preserved as the reasoning behind those
 > calls.
+>
+> **Also in 0.4.0-dev, beyond what this document asked for:** the visual feedback surface a mod
+> needs once it is taking screenshots or running human play tests. `Overlay` fills, outlines
+> and labels cells above the world and the HUD; `Overlay.SetPainter` runs a callback over every
+> cell on screen each frame, optionally only while Alt is held; `View.MaxZoomFactor` raises the
+> game's 1.5x zoom ceiling by up to 8; and `View.ScreenOf` and friends give a cell's place on
+> screen. One finding from building it belongs here, and is not the harness's to fix: the game
+> renders into a fixed 1600x900 viewport and lets the engine rescale that finished frame to the
+> window, so unless the window is that size or a whole multiple of it, every one-pixel feature
+> in the frame has rows and columns doubled or dropped on the way to the screen. That is
+> invisible in the world art and obvious in a bitmap glyph. The overlay draws exactly either
+> way; `Overlay.WindowScale` and `Overlay.PixelPerfect` report whether that survives to the
+> window. Written up in full at `/tmp/atomcraft-render-scaling.md`.
 
 Written by the author of the Pressure mod after getting one GUI assertion to run under the
 harness: that a compressed pixel's density shows in the game's hover box

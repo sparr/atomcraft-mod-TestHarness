@@ -3,7 +3,7 @@ using Godot;
 namespace Atomcraft.TestHarness;
 
 /// <summary>
-/// A 3x5 bitmap font, and the one-row texture atlas the overlay draws it from.
+/// The bitmap fonts overlay text is drawn from, and the atlas each is rendered through.
 ///
 /// Overlay text has to stay legible at one simulation cell per glyph. A cell is 8 world
 /// units, so at the game's own maximum zoom of 1.5 it is 12 screen pixels across: any font
@@ -11,37 +11,228 @@ namespace Atomcraft.TestHarness;
 /// offers blurs, because a glyph outline rasterized at 12px lands on fractional pixel
 /// boundaries. A bitmap font drawn at an integer scale, from integer screen positions,
 /// through a nearest-neighbor filter, is exact instead: each font pixel is a whole number of
-/// screen pixels, every time. That is the whole reason this file exists rather than a call
-/// to Godot's font rendering.
+/// screen pixels, every time.
 ///
-/// 3x5 is the smallest grid that still separates all of 0-9 and A-Z. With one column and one
-/// row of spacing it occupies the 4x6 screen-pixel cell the overlay advertises. Digits and
-/// uppercase are the shapes this size is good at. Lowercase has no room for true descenders,
-/// so it is drawn as distinct short forms rather than as scaled-down uppercase, and some
-/// punctuation ('$', '&amp;', '@') is approximate. If a label has to be read exactly, say it
-/// in digits and capitals, or step up a size.
+/// Three sizes, because one cannot serve the whole zoom range. Zoomed out, only the smallest
+/// fits inside a cell at all; zoomed in, the smallest is a speck in the middle of one. They
+/// are separate fonts rather than one font at three scales, because a 3x5 glyph magnified
+/// three times is still a 3x5 glyph: it gains size and no detail. Drawing 9x13 properly buys
+/// round bowls, real diagonals, and descenders that sit below the baseline instead of being
+/// folded back into the body.
+///
+/// | Size | Glyph | Spacing | Grid | Descenders |
+/// | --- | --- | --- | --- | --- |
+/// | <see cref="Small"/> | 3x5 | 1 | 4x6 | no |
+/// | <see cref="Medium"/> | 5x7 | 2 | 7x9 | no |
+/// | <see cref="Large"/> | 9x13 | 3 | 12x16 | yes |
+///
+/// Digits and capitals are what the two smaller sizes are good at. Neither has room below
+/// the baseline, so their lowercase g, j, p, q and y are folded up into the body; Large has
+/// a real descender zone and draws them properly. A little punctuation is approximate at 3x5.
+/// If a label has to be read exactly, say it in digits and capitals, or use a larger size.
 /// </summary>
-public static class PixelFont
+public sealed class PixelFont
 {
-    /// <summary>Lit area of one glyph, in font pixels.</summary>
-    public const int GlyphWidth = 3;
-    public const int GlyphHeight = 5;
+    /// <summary>3x5 glyphs on a 4x6 grid. The only size that fits inside a cell when zoomed out.</summary>
+    public static readonly PixelFont Small;
 
-    /// <summary>Pen movement per character: the glyph plus one blank column.</summary>
-    public const int Advance = 4;
+    /// <summary>5x7 glyphs on a 7x9 grid.</summary>
+    public static readonly PixelFont Medium;
 
-    /// <summary>Baseline-to-baseline for a multi-line label: the glyph plus one blank row.</summary>
-    public const int LineHeight = 6;
+    /// <summary>9x13 glyphs on a 12x16 grid, with a real descender zone below the baseline.</summary>
+    public static readonly PixelFont Large;
+
+    /// <summary>Every font, largest first. What <see cref="LargestFitting"/> walks.</summary>
+    public static readonly IReadOnlyList<PixelFont> BySizeDescending;
+
+    /// <summary>
+    /// Built here rather than in the field initializers above. Static field initializers run
+    /// in declaration order, and the glyph tables these read are declared at the bottom of the
+    /// file where they can be edited without scrolling past them; constructing the fonts up
+    /// there would hand each one a null table. A static constructor runs after every field
+    /// initializer, so the order on the page stops mattering.
+    /// </summary>
+    static PixelFont()
+    {
+        Small = new PixelFont("Small", 3, 5, 1, hasDescenders: false, Glyphs3x5);
+        Medium = new PixelFont("Medium", 5, 7, 2, hasDescenders: false, Glyphs5x7);
+        Large = new PixelFont("Large", 9, 13, 3, hasDescenders: true, Glyphs9x13);
+        BySizeDescending = new[] { Large, Medium, Small };
+    }
 
     private const char First = ' ';
     private const char Last = '~';
 
+    private readonly string[] _glyphs;
+    private ImageTexture? _atlas;
+
+    private PixelFont(string name, int glyphWidth, int glyphHeight, int spacing,
+                      bool hasDescenders, string[] glyphs)
+    {
+        Name = name;
+        GlyphWidth = glyphWidth;
+        GlyphHeight = glyphHeight;
+        Spacing = spacing;
+        HasDescenders = hasDescenders;
+        _glyphs = glyphs;
+    }
+
+    /// <summary>The name this size is known by, for messages.</summary>
+    public string Name { get; }
+
+    /// <summary>Lit area of one glyph, in font pixels.</summary>
+    public int GlyphWidth { get; }
+    public int GlyphHeight { get; }
+
+    /// <summary>Blank columns between characters, and blank rows between lines.</summary>
+    public int Spacing { get; }
+
+    /// <summary>Pen movement per character: the glyph plus its spacing.</summary>
+    public int Advance => GlyphWidth + Spacing;
+
+    /// <summary>Row-to-row distance for a multi-line label.</summary>
+    public int LineHeight => GlyphHeight + Spacing;
+
     /// <summary>
-    /// One entry per printable ASCII character, from space to tilde, as five rows of three
-    /// cells separated by spaces. '#' is lit. Laid out this way so a glyph can be read and
-    /// corrected in place; the atlas is built from it at first use.
+    /// Whether lowercase g, j, p, q and y drop below the baseline. False for the two smaller
+    /// sizes, which have no room and fold them into the body instead.
     /// </summary>
-    private static readonly string[] Glyphs =
+    public bool HasDescenders { get; }
+
+    /// <summary>Width of <see cref="Atlas"/> in pixels: one <see cref="Advance"/>-wide slot per character.</summary>
+    public int AtlasWidth => _glyphs.Length * Advance;
+
+    public override string ToString() => $"{Name} ({GlyphWidth}x{GlyphHeight} on {Advance}x{LineHeight})";
+
+    /// <summary>
+    /// The glyph atlas: one row of <see cref="Advance"/>-wide slots in character order, white
+    /// where lit and fully transparent elsewhere, so the draw colour comes from the modulate
+    /// and one texture serves every colour. Built once, on the first label drawn in this size.
+    /// </summary>
+    internal ImageTexture Atlas =>
+        _atlas ??= ImageTexture.CreateFromImage(Image.CreateFromData(
+            AtlasWidth, GlyphHeight, useMipmaps: false, Image.Format.Rgba8, BuildAtlasData()));
+
+    /// <summary>
+    /// Drops the atlas texture, so it is not still held by a static when the renderer tears
+    /// down and reported as a leak. The next label drawn builds it again.
+    /// </summary>
+    internal void Release()
+    {
+        _atlas?.Dispose();
+        _atlas = null;
+    }
+
+    /// <summary>Releases every size's atlas.</summary>
+    internal static void ReleaseAll()
+    {
+        foreach (var font in BySizeDescending)
+            font.Release();
+    }
+
+    /// <summary>
+    /// Where <paramref name="c"/> lives in <see cref="Atlas"/>. Anything outside printable
+    /// ASCII draws as '?', which is more useful on screen than a blank or a crash.
+    /// </summary>
+    public Rect2 Region(char c)
+    {
+        var index = (c < First || c > Last) ? '?' - First : c - First;
+        return new Rect2(index * Advance, 0, GlyphWidth, GlyphHeight);
+    }
+
+    /// <summary>
+    /// The size of a label in font pixels, honoring embedded newlines. Trailing spacing is not
+    /// counted, so a one-character label in <see cref="Small"/> measures 3x5 rather than 4x6:
+    /// the spacing exists to separate characters from each other, and counting it would push
+    /// every centered label half a pixel off.
+    /// </summary>
+    public Vector2I Measure(string text)
+    {
+        var lines = text.Split('\n');
+        var widest = 0;
+        foreach (var line in lines)
+            widest = Math.Max(widest, line.Length);
+        if (widest == 0)
+            return Vector2I.Zero;
+        return new Vector2I(widest * Advance - Spacing, lines.Length * LineHeight - Spacing);
+    }
+
+    /// <summary>
+    /// The largest size whose rendering of <paramref name="text"/> at <paramref name="scale"/>
+    /// fits inside <paramref name="box"/>, or <see cref="Small"/> when none of them do.
+    ///
+    /// Falling back to the smallest rather than refusing is deliberate: a label that does not
+    /// quite fit its cell is still the thing you wanted to read, and a cell with nothing in it
+    /// looks exactly like a cell your code decided to skip.
+    /// </summary>
+    public static PixelFont LargestFitting(string text, Vector2 box, int scale = 1)
+    {
+        foreach (var font in BySizeDescending)
+        {
+            var size = (Vector2)font.Measure(text) * scale;
+            if (size.X <= box.X && size.Y <= box.Y)
+                return font;
+        }
+        return Small;
+    }
+
+    /// <summary>
+    /// Checks every glyph in this size is the shape the atlas builder expects, and throws
+    /// naming the offender if one is not.
+    ///
+    /// The glyph tables are hand-written data, and the failure mode of a typo in one is a
+    /// silently misaligned atlas: every character after the bad one draws a sliver of its
+    /// neighbour. This is pure arithmetic over strings, with no texture and no display
+    /// involved, so the ordinary headless suite can catch that rather than leaving it to
+    /// whoever next looks closely at a screenshot.
+    /// </summary>
+    public void Validate() => BuildAtlasData();
+
+    /// <summary>Validates every size.</summary>
+    public static void ValidateAll()
+    {
+        foreach (var font in BySizeDescending)
+            font.Validate();
+    }
+
+    private byte[] BuildAtlasData()
+    {
+        var width = AtlasWidth;
+        var data = new byte[width * GlyphHeight * 4];
+
+        for (var index = 0; index < _glyphs.Length; index++)
+        {
+            var rows = _glyphs[index].Split(' ');
+            if (rows.Length != GlyphHeight)
+                throw new AssertionException(
+                    $"PixelFont {Name} glyph {index} ('{(char)(First + index)}') has {rows.Length} " +
+                    $"rows, expected {GlyphHeight}");
+
+            for (var y = 0; y < GlyphHeight; y++)
+            {
+                if (rows[y].Length != GlyphWidth)
+                    throw new AssertionException(
+                        $"PixelFont {Name} glyph {index} ('{(char)(First + index)}') row {y} is " +
+                        $"{rows[y].Length} cells wide, expected {GlyphWidth}");
+
+                for (var x = 0; x < GlyphWidth; x++)
+                {
+                    if (rows[y][x] != '#')
+                        continue;
+                    var offset = ((y * width) + index * Advance + x) * 4;
+                    data[offset] = data[offset + 1] = data[offset + 2] = data[offset + 3] = byte.MaxValue;
+                }
+            }
+        }
+
+        return data;
+    }
+
+    // Each table holds one entry per printable ASCII character, from space to tilde, as rows
+    // of cells separated by spaces. '#' is lit. Laid out this way so a glyph can be read and
+    // corrected in place; the atlas is built from it at first use.
+
+    private static readonly string[] Glyphs3x5 =
     {
         "... ... ... ... ...",   // (space)
         ".#. .#. .#. ... .#.",   // !
@@ -103,7 +294,7 @@ public static class PixelFont
         "#.# #.# .#. .#. .#.",   // Y
         "### ..# .#. #.. ###",   // Z
         ".## .#. .#. .#. .##",   // [
-        "#.. #.. .#. ..# ..#",   // \
+        "#.. #.. .#. ..# ..#",   // backslash
         "##. .#. .#. .#. ##.",   // ]
         ".#. #.# ... ... ...",   // ^
         "... ... ... ... ###",   // _
@@ -140,90 +331,202 @@ public static class PixelFont
         "... ..# ### #.. ...",   // ~
     };
 
-    private static ImageTexture? _atlas;
-
-    /// <summary>
-    /// The glyph atlas: one row of <see cref="Advance"/>-wide slots in character order, white
-    /// where lit and fully transparent elsewhere, so the draw colour comes from the modulate
-    /// and one texture serves every colour. Built once, on the first label drawn.
-    /// </summary>
-    internal static ImageTexture Atlas =>
-        _atlas ??= ImageTexture.CreateFromImage(Image.CreateFromData(
-            AtlasWidth, GlyphHeight, useMipmaps: false, Image.Format.Rgba8, BuildAtlasData()));
-
-    /// <summary>Width of <see cref="Atlas"/> in pixels: one <see cref="Advance"/>-wide slot per character.</summary>
-    public static int AtlasWidth => Glyphs.Length * Advance;
-
-    /// <summary>
-    /// Checks every glyph in the table is the shape the atlas builder expects, and throws
-    /// naming the offender if one is not.
-    ///
-    /// The glyph table is hand-written data, and the failure mode of a typo in it is a
-    /// silently misaligned atlas: every character after the bad one draws a sliver of its
-    /// neighbour. This is pure arithmetic over strings, with no texture and no display
-    /// involved, so the ordinary headless suite can catch that rather than leaving it to
-    /// whoever next looks closely at a screenshot.
-    /// </summary>
-    public static void Validate() => BuildAtlasData();
-
-    /// <summary>
-    /// Where <paramref name="c"/> lives in <see cref="Atlas"/>. Anything outside printable
-    /// ASCII draws as '?', which is more useful on screen than a blank or a crash.
-    /// </summary>
-    public static Rect2 Region(char c)
+    private static readonly string[] Glyphs5x7 =
     {
-        var index = (c < First || c > Last) ? '?' - First : c - First;
-        return new Rect2(index * Advance, 0, GlyphWidth, GlyphHeight);
-    }
+        "..... ..... ..... ..... ..... ..... .....",   // (space)
+        "..#.. ..#.. ..#.. ..#.. ..#.. ..... ..#..",   // !
+        ".#.#. .#.#. ..... ..... ..... ..... .....",   // "
+        ".#.#. .#.#. ##### .#.#. ##### .#.#. .#.#.",   // #
+        "..#.. .#### #.#.. .###. ..#.# ####. ..#..",   // $
+        "##... ##..# ...#. ..#.. .#... #..## ...##",   // %
+        ".##.. #..#. #.#.. .#... #.#.# #..#. .##.#",   // &
+        "..#.. ..#.. ..... ..... ..... ..... .....",   // '
+        "...#. ..#.. .#... .#... .#... ..#.. ...#.",   // (
+        ".#... ..#.. ...#. ...#. ...#. ..#.. .#...",   // )
+        "..... #.#.# .###. ##### .###. #.#.# .....",   // *
+        "..... ..#.. ..#.. ##### ..#.. ..#.. .....",   // +
+        "..... ..... ..... ..... ..##. ..#.. .#...",   // ,
+        "..... ..... ..... ##### ..... ..... .....",   // -
+        "..... ..... ..... ..... ..... .##.. .##..",   // .
+        "....# ....# ...#. ..#.. .#... #.... #....",   // /
+        ".###. #...# #..## #.#.# ##..# #...# .###.",   // 0
+        "..#.. .##.. ..#.. ..#.. ..#.. ..#.. .###.",   // 1
+        ".###. #...# ....# ...#. ..#.. .#... #####",   // 2
+        "##### ...#. ..#.. ...#. ....# #...# .###.",   // 3
+        "...#. ..##. .#.#. #..#. ##### ...#. ...#.",   // 4
+        "##### #.... ####. ....# ....# #...# .###.",   // 5
+        "..##. .#... #.... ####. #...# #...# .###.",   // 6
+        "##### ....# ...#. ..#.. .#... .#... .#...",   // 7
+        ".###. #...# #...# .###. #...# #...# .###.",   // 8
+        ".###. #...# #...# .#### ....# ...#. .##..",   // 9
+        "..... .##.. .##.. ..... .##.. .##.. .....",   // :
+        "..... .##.. .##.. ..... .##.. ..#.. .#...",   // ;
+        "...#. ..#.. .#... #.... .#... ..#.. ...#.",   // <
+        "..... ..... ##### ..... ##### ..... .....",   // =
+        ".#... ..#.. ...#. ....# ...#. ..#.. .#...",   // >
+        ".###. #...# ....# ...#. ..#.. ..... ..#..",   // ?
+        ".###. #...# #.### #.#.# #.### #.... .###.",   // @
+        "..#.. .#.#. #...# #...# ##### #...# #...#",   // A
+        "####. #...# #...# ####. #...# #...# ####.",   // B
+        ".###. #...# #.... #.... #.... #...# .###.",   // C
+        "###.. #..#. #...# #...# #...# #..#. ###..",   // D
+        "##### #.... #.... ####. #.... #.... #####",   // E
+        "##### #.... #.... ####. #.... #.... #....",   // F
+        ".###. #...# #.... #..## #...# #...# .###.",   // G
+        "#...# #...# #...# ##### #...# #...# #...#",   // H
+        ".###. ..#.. ..#.. ..#.. ..#.. ..#.. .###.",   // I
+        "..### ...#. ...#. ...#. ...#. #..#. .##..",   // J
+        "#...# #..#. #.#.. ##... #.#.. #..#. #...#",   // K
+        "#.... #.... #.... #.... #.... #.... #####",   // L
+        "#...# ##.## #.#.# #.#.# #...# #...# #...#",   // M
+        "#...# ##..# #.#.# #..## #...# #...# #...#",   // N
+        ".###. #...# #...# #...# #...# #...# .###.",   // O
+        "####. #...# #...# ####. #.... #.... #....",   // P
+        ".###. #...# #...# #...# #.#.# #..#. .##.#",   // Q
+        "####. #...# #...# ####. #.#.. #..#. #...#",   // R
+        ".#### #.... #.... .###. ....# ....# ####.",   // S
+        "##### ..#.. ..#.. ..#.. ..#.. ..#.. ..#..",   // T
+        "#...# #...# #...# #...# #...# #...# .###.",   // U
+        "#...# #...# #...# #...# #...# .#.#. ..#..",   // V
+        "#...# #...# #...# #.#.# #.#.# ##.## #...#",   // W
+        "#...# #...# .#.#. ..#.. .#.#. #...# #...#",   // X
+        "#...# #...# .#.#. ..#.. ..#.. ..#.. ..#..",   // Y
+        "##### ....# ...#. ..#.. .#... #.... #####",   // Z
+        ".###. .#... .#... .#... .#... .#... .###.",   // [
+        "#.... #.... .#... ..#.. ...#. ....# ....#",   // backslash
+        ".###. ...#. ...#. ...#. ...#. ...#. .###.",   // ]
+        "..#.. .#.#. #...# ..... ..... ..... .....",   // ^
+        "..... ..... ..... ..... ..... ..... #####",   // _
+        ".#... ..#.. ..... ..... ..... ..... .....",   // `
+        "..... ..... .###. ....# .#### #...# .####",   // a
+        "#.... #.... ####. #...# #...# #...# ####.",   // b
+        "..... ..... .###. #.... #.... #.... .###.",   // c
+        "....# ....# .#### #...# #...# #...# .####",   // d
+        "..... ..... .###. #...# ##### #.... .###.",   // e
+        "..##. .#... .#... ####. .#... .#... .#...",   // f
+        "..... .#### #...# #...# .#### ....# .###.",   // g
+        "#.... #.... ####. #...# #...# #...# #...#",   // h
+        "..#.. ..... .##.. ..#.. ..#.. ..#.. .###.",   // i
+        "...#. ..... ..##. ...#. ...#. #..#. .##..",   // j
+        "#.... #.... #..#. #.#.. ##... #.#.. #..#.",   // k
+        ".##.. ..#.. ..#.. ..#.. ..#.. ..#.. .###.",   // l
+        "..... ..... ##.#. #.#.# #.#.# #.#.# #...#",   // m
+        "..... ..... ####. #...# #...# #...# #...#",   // n
+        "..... ..... .###. #...# #...# #...# .###.",   // o
+        "..... ####. #...# #...# ####. #.... #....",   // p
+        "..... .#### #...# #...# .#### ....# ....#",   // q
+        "..... ..... #.##. ##..# #.... #.... #....",   // r
+        "..... ..... .#### #.... .###. ....# ####.",   // s
+        ".#... .#... ####. .#... .#... .#..# ..##.",   // t
+        "..... ..... #...# #...# #...# #..## .##.#",   // u
+        "..... ..... #...# #...# #...# .#.#. ..#..",   // v
+        "..... ..... #...# #.#.# #.#.# #.#.# .#.#.",   // w
+        "..... ..... #...# .#.#. ..#.. .#.#. #...#",   // x
+        "..... #...# #...# #...# .#### ....# .###.",   // y
+        "..... ..... ##### ...#. ..#.. .#... #####",   // z
+        "...## ..#.. ..#.. .#... ..#.. ..#.. ...##",   // {
+        "..#.. ..#.. ..#.. ..#.. ..#.. ..#.. ..#..",   // |
+        "##... ..#.. ..#.. ...#. ..#.. ..#.. ##...",   // }
+        "..... ..... .#... #.#.# ...#. ..... .....",   // ~
+    };
 
-    /// <summary>
-    /// The size of a label in font pixels at scale 1, honoring embedded newlines. Trailing
-    /// spacing is not counted, so a one-character label measures 3x5 rather than 4x6: the
-    /// spacing exists to separate characters from each other, and counting it would push
-    /// every centered label half a pixel off.
-    /// </summary>
-    public static Vector2I Measure(string text)
+    /// <summary>Rows 0-9 are the cap and ascender zone with the baseline at row 9; rows 10-12 are the descender zone.</summary>
+    private static readonly string[] Glyphs9x13 =
     {
-        var lines = text.Split('\n');
-        var widest = 0;
-        foreach (var line in lines)
-            widest = Math.Max(widest, line.Length);
-        if (widest == 0)
-            return Vector2I.Zero;
-        return new Vector2I(widest * Advance - (Advance - GlyphWidth),
-                            lines.Length * LineHeight - (LineHeight - GlyphHeight));
-    }
-
-    private static byte[] BuildAtlasData()
-    {
-        var width = AtlasWidth;
-        var data = new byte[width * GlyphHeight * 4];
-
-        for (var index = 0; index < Glyphs.Length; index++)
-        {
-            var rows = Glyphs[index].Split(' ');
-            if (rows.Length != GlyphHeight)
-                throw new AssertionException(
-                    $"PixelFont glyph {index} ('{(char)(First + index)}') has {rows.Length} rows, " +
-                    $"expected {GlyphHeight}");
-
-            for (var y = 0; y < GlyphHeight; y++)
-            {
-                if (rows[y].Length != GlyphWidth)
-                    throw new AssertionException(
-                        $"PixelFont glyph {index} ('{(char)(First + index)}') row {y} is " +
-                        $"{rows[y].Length} cells wide, expected {GlyphWidth}");
-
-                for (var x = 0; x < GlyphWidth; x++)
-                {
-                    if (rows[y][x] != '#')
-                        continue;
-                    var offset = ((y * width) + index * Advance + x) * 4;
-                    data[offset] = data[offset + 1] = data[offset + 2] = data[offset + 3] = byte.MaxValue;
-                }
-            }
-        }
-
-        return data;
-    }
+        "......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ......... .........",   // (space)
+        "...###... ...###... ...###... ...###... ...###... ...###... ...###... ......... ...###... ...###... ......... ......... .........",   // !
+        "..##.##.. ..##.##.. ..##.##.. ......... ......... ......... ......... ......... ......... ......... ......... ......... .........",   // "
+        "......... ..##.##.. ..##.##.. ######### ..##.##.. ..##.##.. ######### ..##.##.. ..##.##.. ......... ......... ......... .........",   // #
+        "....#.... ..#####.. .##.#.##. .##.#.... ..#####.. ....#..## ##..#..## .##.#.##. ..#####.. ....#.... ......... ......... .........",   // $
+        "###....## #.#...##. ###..##.. ....##... ...##.... ..##..... .##..###. ##...#.#. .....###. ......... ......... ......... .........",   // %
+        "..####... .##..##.. .##..##.. ..####... .####.... ##..##..# ##...##.# ##....### .##...### ..####.## ......... ......... .........",   // &
+        "...###... ...###... ...##.... ......... ......... ......... ......... ......... ......... ......... ......... ......... .........",   // '
+        ".....##.. ....##... ...##.... ..##..... ..##..... ..##..... ..##..... ...##.... ....##... .....##.. ......... ......... .........",   // (
+        "..##..... ...##.... ....##... .....##.. .....##.. .....##.. .....##.. ....##... ...##.... ..##..... ......... ......... .........",   // )
+        "......... ...###... ##.###.## .#######. ...###... .#######. ##.###.## ...###... ......... ......... ......... ......... .........",   // *
+        "......... ......... ......... ...###... ...###... ######### ...###... ...###... ......... ......... ......... ......... .........",   // +
+        "......... ......... ......... ......... ......... ......... ......... ......... ...###... ...###... ...##.... ..##..... .........",   // ,
+        "......... ......... ......... ......... ......... ......... .#######. .#######. ......... ......... ......... ......... .........",   // -
+        "......... ......... ......... ......... ......... ......... ......... ......... ...###... ...###... ......... ......... .........",   // .
+        ".......## ......##. .....##.. .....##.. ....##... ...##.... ..##..... ..##..... .##...... ##....... ......... ......... .........",   // /
+        "..#####.. .##...##. ##.....## ##....### ##...#### ##..##.## ####...## ###....## .##...##. ..#####.. ......... ......... .........",   // 0
+        "...###... ..####... .##.##... ....##... ....##... ....##... ....##... ....##... ....##... .#######. ......... ......... .........",   // 1
+        "..#####.. .##...##. ##.....## .......## ......##. .....##.. ....##... ...##.... ..##..... .######## ......... ......... .........",   // 2
+        ".#######. ......##. .....##.. ....##... ...####.. .......## .......## ##.....## .##...##. ..#####.. ......... ......... .........",   // 3
+        ".....##.. ....###.. ...####.. ..##.##.. .##..##.. ##...##.. ######### .....##.. .....##.. .....##.. ......... ......... .........",   // 4
+        ".#######. .##...... .##...... .######.. .##...##. .......## .......## ##.....## .##...##. ..#####.. ......... ......... .........",   // 5
+        "...####.. ..##..##. .##...... ##....... ##.####.. ###...##. ##.....## ##.....## .##...##. ..#####.. ......... ......... .........",   // 6
+        "######### ##.....## ......##. .....##.. ....##... ....##... ...##.... ...##.... ...##.... ...##.... ......... ......... .........",   // 7
+        "..#####.. .##...##. ##.....## .##...##. ..#####.. .##...##. ##.....## ##.....## .##...##. ..#####.. ......... ......... .........",   // 8
+        "..#####.. .##...##. ##.....## ##.....## .##..###. ..####.## .......## ......##. .##..##.. ..####... ......... ......... .........",   // 9
+        "......... ......... ......... ...###... ...###... ......... ......... ...###... ...###... ......... ......... ......... .........",   // :
+        "......... ......... ......... ...###... ...###... ......... ......... ...###... ...###... ...##.... ..##..... ......... .........",   // ;
+        "......... ......##. .....##.. ....##... ...##.... ..##..... ...##.... ....##... .....##.. ......##. ......... ......... .........",   // <
+        "......... ......... ......... ......... .#######. .#######. ......... .#######. .#######. ......... ......... ......... .........",   // =
+        "......... .##...... ..##..... ...##.... ....##... .....##.. ....##... ...##.... ..##..... .##...... ......... ......... .........",   // >
+        "..#####.. .##...##. ##.....## .......## ......##. .....##.. ....##... ......... ...###... ...###... ......... ......... .........",   // ?
+        "..#####.. .##...##. ##.....## ##..###.# ##.##.#.# ##.##.#.# ##..####. ##....... .##...##. ..#####.. ......... ......... .........",   // @
+        "...###... ...###... ..##.##.. ..##.##.. .##...##. .#######. .##...##. ##.....## ##.....## ##.....## ......... ......... .........",   // A
+        "#######.. ##....##. ##.....## ##....##. #######.. ##....##. ##.....## ##.....## ##....##. #######.. ......... ......... .........",   // B
+        "..#####.. .##...##. ##.....## ##....... ##....... ##....... ##....... ##.....## .##...##. ..#####.. ......... ......... .........",   // C
+        "######... ##...##.. ##....##. ##.....## ##.....## ##.....## ##.....## ##....##. ##...##.. ######... ......... ......... .........",   // D
+        "######### ##....... ##....... ##....... #######.. ##....... ##....... ##....... ##....... ######### ......... ......... .........",   // E
+        "######### ##....... ##....... ##....... #######.. ##....... ##....... ##....... ##....... ##....... ......... ......... .........",   // F
+        "..#####.. .##...##. ##.....## ##....... ##....... ##..##### ##.....## ##.....## .##...##. ..######. ......... ......... .........",   // G
+        "##.....## ##.....## ##.....## ##.....## ######### ##.....## ##.....## ##.....## ##.....## ##.....## ......... ......... .........",   // H
+        ".#######. ...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... .#######. ......... ......... .........",   // I
+        "....##### ......##. ......##. ......##. ......##. ......##. ##....##. ##....##. .##..##.. ..####... ......... ......... .........",   // J
+        "##.....## ##....##. ##...##.. ##..##... #####.... ##..##... ##...##.. ##....##. ##.....## ##.....## ......... ......... .........",   // K
+        "##....... ##....... ##....... ##....... ##....... ##....... ##....... ##....... ##....... ######### ......... ......... .........",   // L
+        "##.....## ###...### ####.#### ##.###.## ##..#..## ##.....## ##.....## ##.....## ##.....## ##.....## ......... ......... .........",   // M
+        "##.....## ###....## ####...## ##.##..## ##..##.## ##...#### ##....### ##.....## ##.....## ##.....## ......... ......... .........",   // N
+        "..#####.. .##...##. ##.....## ##.....## ##.....## ##.....## ##.....## ##.....## .##...##. ..#####.. ......... ......... .........",   // O
+        "#######.. ##....##. ##.....## ##....##. #######.. ##....... ##....... ##....... ##....... ##....... ......... ......... .........",   // P
+        "..#####.. .##...##. ##.....## ##.....## ##.....## ##.....## ##..##.## ##...#### .##...##. ..####.## ......... ......... .........",   // Q
+        "#######.. ##....##. ##.....## ##....##. #######.. ##..##... ##...##.. ##....##. ##.....## ##.....## ......... ......... .........",   // R
+        "..#####.. .##...##. ##....... .##...... ..#####.. ......##. .......## ##.....## .##...##. ..#####.. ......... ......... .........",   // S
+        "######### ...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... ......... ......... .........",   // T
+        "##.....## ##.....## ##.....## ##.....## ##.....## ##.....## ##.....## ##.....## .##...##. ..#####.. ......... ......... .........",   // U
+        "##.....## ##.....## ##.....## ##.....## .##...##. .##...##. ..##.##.. ..##.##.. ...###... ...###... ......... ......... .........",   // V
+        "##.....## ##.....## ##.....## ##.....## ##.....## ##..#..## ##.###.## ####.#### ###...### .##...##. ......... ......... .........",   // W
+        "##.....## ##.....## .##...##. ..##.##.. ...###... ...###... ..##.##.. .##...##. ##.....## ##.....## ......... ......... .........",   // X
+        "##.....## ##.....## .##...##. ..##.##.. ...###... ...###... ...###... ...###... ...###... ...###... ......... ......... .........",   // Y
+        "######### ......##. .....##.. ....##... ...##.... ..##..... .##...... ##....... ##....... ######### ......... ......... .........",   // Z
+        "..#####.. ..##..... ..##..... ..##..... ..##..... ..##..... ..##..... ..##..... ..##..... ..#####.. ......... ......... .........",   // [
+        "##....... .##...... ..##..... ..##..... ...##.... ....##... .....##.. .....##.. ......##. .......## ......... ......... .........",   // backslash
+        "..#####.. .....##.. .....##.. .....##.. .....##.. .....##.. .....##.. .....##.. .....##.. ..#####.. ......... ......... .........",   // ]
+        "...###... ..##.##.. .##...##. ##.....## ......... ......... ......... ......... ......... ......... ......... ......... .........",   // ^
+        "......... ......... ......... ......... ......... ......... ......... ......... ......... ......... ######### ######### .........",   // _
+        "..##..... ...##.... ....##... ......... ......... ......... ......... ......... ......... ......... ......... ......... .........",   // `
+        "......... ......... ......... ......... ..######. .##....## ..####### .##....## .##....## ..####### ......... ......... .........",   // a
+        "##....... ##....... ##....... ##....... ##.####.. ###...##. ##.....## ##.....## ###...##. ##.####.. ......... ......... .........",   // b
+        "......... ......... ......... ......... ..#####.. .##...##. ##....... ##....... .##...##. ..#####.. ......... ......... .........",   // c
+        ".......## .......## .......## .......## ..####.## .##...### ##.....## ##.....## .##...### ..####.## ......... ......... .........",   // d
+        "......... ......... ......... ......... ..#####.. .##...##. ##.....## ######### ##....... ..#####.. ......... ......... .........",   // e
+        "....####. ...##.... ...##.... .#######. ...##.... ...##.... ...##.... ...##.... ...##.... ...##.... ......... ......... .........",   // f
+        "......... ......... ......... ......... ..####### .##....## ##.....## .##....## ..####### .......## ##.....## .##...##. ..#####..",   // g
+        "##....... ##....... ##....... ##....... ##.####.. ###...##. ##.....## ##.....## ##.....## ##.....## ......... ......... .........",   // h
+        "...###... ...###... ......... ......... ..####... ...###... ...###... ...###... ...###... .#######. ......... ......... .........",   // i
+        ".....###. .....###. ......... ......... ....####. .....###. .....###. .....###. .....###. .....###. ##...###. .##.###.. ..####...",   // j
+        "##....... ##....... ##....... ##....... ##...##.. ##..##... ##.##.... #####.... ##..##... ##...###. ......... ......... .........",   // k
+        "..###.... ..###.... ...##.... ...##.... ...##.... ...##.... ...##.... ...##.... ...##..## ....####. ......... ......... .........",   // l
+        "......... ......... ......... ......... ########. ##.##.##. ##.##.##. ##.##.##. ##.##.##. ##.##.##. ......... ......... .........",   // m
+        "......... ......... ......... ......... ##.####.. ###...##. ##.....## ##.....## ##.....## ##.....## ......... ......... .........",   // n
+        "......... ......... ......... ......... ..#####.. .##...##. ##.....## ##.....## .##...##. ..#####.. ......... ......... .........",   // o
+        "......... ......... ......... ......... ##.####.. ###...##. ##.....## ###...##. ##.####.. ##....... ##....... ##....... ##.......",   // p
+        "......... ......... ......... ......... ..####.## .##...### ##.....## .##...### ..####.## .......## .......## .......## .......##",   // q
+        "......... ......... ......... ......... ##.####.. ###..##.. ##....... ##....... ##....... ##....... ......... ......... .........",   // r
+        "......... ......... ......... ......... ..######. .##....## ..#####.. .......## ##.....## .######.. ......... ......... .........",   // s
+        "......... ...##.... ...##.... .#######. ...##.... ...##.... ...##.... ...##.... ...##..## ....####. ......... ......... .........",   // t
+        "......... ......... ......... ......... ##.....## ##.....## ##.....## ##.....## ###...### .####..## ......... ......... .........",   // u
+        "......... ......... ......... ......... ##.....## ##.....## .##...##. ..##.##.. ...###... ...###... ......... ......... .........",   // v
+        "......... ......... ......... ......... ##.....## ##.....## ##..#..## ##.###.## ####.#### .##...##. ......... ......... .........",   // w
+        "......... ......... ......... ......... ##.....## .##...##. ..#####.. ..#####.. .##...##. ##.....## ......... ......... .........",   // x
+        "......... ......... ......... ......... ##.....## ##.....## ##.....## .##...### ..####### .......## ......##. .##..##.. ..####...",   // y
+        "......... ......... ......... ......... ######### .....##.. ....##... ...##.... ..##..... ######### ......... ......... .........",   // z
+        "....####. ...##.... ...##.... ...##.... ..##..... .##...... ..##..... ...##.... ...##.... ....####. ......... ......... .........",   // {
+        "...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... ...###... ......... ......... .........",   // |
+        ".####.... .....##.. .....##.. .....##.. ......##. .......## ......##. .....##.. .....##.. .####.... ......... ......... .........",   // }
+        "......... ......... ......... ......... ......... .####..## ##..####. ......... ......... ......... ......... ......... .........",   // ~
+    };
 }

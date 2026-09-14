@@ -15,6 +15,16 @@ that asserts on live UI no longer reaches into game internals for any of it:
 
 ### Added
 
+- **Two larger bitmap fonts, and a label that sizes itself.** `TextSize` now names a font
+  rather than a scale factor: `Small` (3x5 on a 4x6 grid), `Medium` (5x7 on 7x9), and `Large`
+  (9x13 on 12x16, with a real descender zone). They are separate fonts, not one font scaled,
+  because a 3x5 glyph magnified is still a 3x5 glyph; 9x13 buys round bowls, real diagonals,
+  and lowercase `g`, `j`, `p`, `q`, `y` that drop below the baseline instead of being folded
+  into the body. `Overlay.Label` defaults to `TextSize.Auto`, the largest size that fits the
+  cell, resolved when the mark is drawn so a retained label keeps choosing correctly as the
+  view zooms; naming a size fixes it, and `scale` multiplies whichever size is used. When
+  nothing fits, `Small` is drawn anyway rather than nothing. `Overlay.FontFor` resolves what
+  `Auto` would pick, and `PixelFont.Small`/`Medium`/`Large` expose each font's metrics.
 - **`[GameTest(RequiresDisplay = true)]`.** The runner ends such a test with no verdict under
   a headless display server, before its body runs, so the ordinary suite stays green and a
   `--headful` run is where it counts. Tests no longer sniff `DisplayServer` themselves.

@@ -543,21 +543,53 @@ is why a cell is *not* what you expected.
 ```csharp
 Overlay.Fill(tile, new Color(1f, 0f, 1f, 0.5f));   // tint the whole cell
 Overlay.Outline(tile, Colors.Lime, thickness: 2f); // a border just inside the cell's edges
-Overlay.Label(tile, "leak", Colors.Red, TextSize.Small, LabelPlacement.Above);
+Overlay.Label(tile, "leak", Colors.Red, placement: LabelPlacement.Above);
 Overlay.Clear();                                    // marks last until this, or the test's end
 ```
 
 Text is a bitmap font drawn at a whole-number scale from a whole-number screen position, so
-every font pixel is an exact block of screen pixels at any zoom, with nothing to blur.
-`TextSize.Tiny` is the smallest: a 3x5 glyph on a 4x6 grid. One cell is `8 * zoom` screen
-pixels, so a Tiny character fits *inside* a cell from about 6x zoom, and four of them fit at
-8x. `Small`, `Medium` and `Large` are the same font at two, three and four times the size.
-Digits and capitals are what 3x5 is good at; lowercase has no room for real descenders and is
-drawn as distinct short forms, and a little punctuation (`$`, `&`, `@`) is approximate. If a
-label has to be read exactly, say it in digits and capitals or step up a size.
-`Overlay.MeasureLabel` gives the size of a label if you want to place one yourself, and
-`PixelFont` exposes the underlying metrics (`GlyphWidth`, `GlyphHeight`, `Advance`,
-`LineHeight`) for anything finer.
+every font pixel is an exact block of screen pixels at any zoom, with nothing to blur. Whether
+it stays exact all the way to the window is a separate question, and the answer is below.
+
+There are three sizes, and by default a label takes **the largest that fits its cell**:
+
+| `TextSize` | Glyph | Spacing | Grid | Descenders |
+| --- | --- | --- | --- | --- |
+| `Small` | 3x5 | 1 | 4x6 | no |
+| `Medium` | 5x7 | 2 | 7x9 | no |
+| `Large` | 9x13 | 3 | 12x16 | yes |
+
+They are separate fonts, not one font at three scales: a 3x5 glyph magnified three times is
+still a 3x5 glyph, gaining size and no detail. Drawing 9x13 properly buys round bowls, real
+diagonals, and descenders that sit below the baseline instead of being folded up into the
+body. A cell is `8 * zoom` screen pixels, so what fits changes as the view zooms — `Small`
+is the only size that fits inside a cell zoomed out, and at 8x zoom a cell holds several
+`Large` characters. Choosing per label is what keeps a number inside its own pixel without
+the caller tracking the zoom, and the choice is made when the mark is *drawn*, so a retained
+label keeps choosing correctly as the view moves.
+
+Name a size to fix it instead, when a row of labels has to come out uniform regardless of
+what each one says, and pass `scale` to multiply whichever size is used:
+
+```csharp
+Overlay.Label(tile, "42", Colors.White);                        // largest that fits
+Overlay.Label(tile, "42", Colors.White, TextSize.Medium);       // always 5x7
+Overlay.Label(tile, "42", Colors.White, TextSize.Large, scale: 2);
+```
+
+The auto choice is made against the *scaled* size, so raising `scale` steps down through the
+sizes rather than overflowing. When even `Small` does not fit, `Small` is drawn anyway: a
+label spilling past its cell can still be read, and an empty cell looks exactly like one your
+code decided to skip.
+
+Digits and capitals are what the two smaller sizes are good at. Neither has room below the
+baseline, so their lowercase `g`, `j`, `p`, `q` and `y` are folded up into the body; `Large`
+draws them properly. A little punctuation (`$`, `&`, `@`) is approximate at 3x5.
+
+`Overlay.MeasureLabel` gives the size of a label if you want to place one yourself,
+`Overlay.FontFor(tile, text)` resolves what `Auto` would pick for a given cell, and
+`PixelFont.Small` / `Medium` / `Large` expose the metrics (`GlyphWidth`, `GlyphHeight`,
+`Spacing`, `Advance`, `LineHeight`, `HasDescenders`) for anything finer.
 
 ### A callback for every pixel on screen
 

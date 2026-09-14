@@ -21,20 +21,29 @@ public enum OverlayWhen
     AltHeld,
 }
 
-/// <summary>How big overlay text is drawn, as a multiple of the 3x5 base glyph.</summary>
+/// <summary>
+/// Which bitmap font overlay text is drawn in. See <see cref="PixelFont"/> for the metrics.
+/// </summary>
 public enum TextSize
 {
-    /// <summary>3x5 glyphs on a 4x6 grid. Fits inside one cell from about 6x zoom.</summary>
-    Tiny = 1,
+    /// <summary>
+    /// The largest size that fits the cell, which is the default.
+    ///
+    /// A cell is <c>8 * zoom</c> screen pixels, so what fits changes as the view zooms and
+    /// with how much text there is. Picking per label keeps a number inside its own pixel
+    /// without the caller tracking the zoom. When even the smallest overflows, the smallest is
+    /// drawn anyway: a label spilling past its cell still reads, and an empty cell does not.
+    /// </summary>
+    Auto,
 
-    /// <summary>6x10 glyphs on an 8x12 grid.</summary>
-    Small = 2,
+    /// <summary>3x5 glyphs on a 4x6 grid.</summary>
+    Small,
 
-    /// <summary>9x15 glyphs on a 12x18 grid.</summary>
-    Medium = 3,
+    /// <summary>5x7 glyphs on a 7x9 grid.</summary>
+    Medium,
 
-    /// <summary>12x20 glyphs on a 16x24 grid. Readable on a screenshot someone will scroll past.</summary>
-    Large = 4,
+    /// <summary>9x13 glyphs on a 12x16 grid, with true descenders.</summary>
+    Large,
 }
 
 /// <summary>Where a label sits relative to the cell it belongs to.</summary>
@@ -90,9 +99,10 @@ public readonly struct VisiblePixel
 
     /// <summary>Writes on the cell. See <see cref="Overlay.Label"/>.</summary>
     public void Label(string text, Color color,
-                      TextSize size = TextSize.Tiny,
-                      LabelPlacement placement = LabelPlacement.Center) =>
-        Overlay.DrawLabel(Screen, text, color, size, placement);
+                      TextSize size = TextSize.Auto,
+                      LabelPlacement placement = LabelPlacement.Center,
+                      int scale = 1) =>
+        Overlay.DrawLabel(Screen, text, color, size, placement, scale);
 }
 
 /// <summary>
@@ -153,8 +163,9 @@ public static class Overlay
     private sealed class LabelMark : Mark
     {
         public Vector2I Tile; public string Text = ""; public Color Color;
-        public TextSize Size; public LabelPlacement Placement;
-        public override void Draw() => DrawLabel(View.ScreenRectOf(Tile), Text, Color, Size, Placement);
+        public TextSize Size; public LabelPlacement Placement; public int Scale;
+        public override void Draw() =>
+            DrawLabel(View.ScreenRectOf(Tile), Text, Color, Size, Placement, Scale);
     }
 
     private static readonly List<Mark> Marks = new();
@@ -213,26 +224,68 @@ public static class Overlay
     /// whole-number screen position, so every font pixel is an exact block of screen pixels
     /// at any zoom. Embedded newlines start a new line.
     ///
-    /// <see cref="TextSize.Tiny"/> is the 4x6 grid: 3x5 of glyph plus a column and a row of
-    /// spacing. One cell is <c>8 * zoom</c> screen pixels, so a single Tiny character fits
-    /// inside a cell from about 6x zoom (see <see cref="View.MaxZoomFactor"/>) and a label
-    /// placed <see cref="LabelPlacement.Above"/> a cell is legible at any zoom.
+    /// By default the largest of the three sizes that fits the cell is used, which is usually
+    /// what you want: a cell is <c>8 * zoom</c> screen pixels, so the size that reads best
+    /// changes as the view zooms and with how much text there is. Name a
+    /// <see cref="TextSize"/> to fix it instead, when a row of labels has to come out at one
+    /// size regardless of what each one says.
+    ///
+    /// <paramref name="scale"/> multiplies whichever size is used, and the auto choice is made
+    /// against the scaled size, so raising it picks a smaller font rather than overflowing.
+    /// The sizes cover the ordinary range on their own; reach for scale when a screenshot has
+    /// to be read at a glance.
+    ///
+    /// The size is chosen when the mark is drawn, not when it is added, so a retained label
+    /// keeps choosing correctly as the view zooms.
     /// </summary>
     public static void Label(Vector2I tile, string text, Color color,
-                             TextSize size = TextSize.Tiny,
-                             LabelPlacement placement = LabelPlacement.Center) =>
+                             TextSize size = TextSize.Auto,
+                             LabelPlacement placement = LabelPlacement.Center,
+                             int scale = 1) =>
         Add(new LabelMark
         {
-            Tile = tile, Text = text, Color = color, Size = size, Placement = placement,
+            Tile = tile, Text = text, Color = color,
+            Size = size, Placement = placement, Scale = RequireScale(scale),
         });
 
     /// <summary>
     /// How much screen space a label would take, so a caller can place one itself rather than
     /// guess. Honors embedded newlines, and counts only the glyphs: the spacing between
     /// characters is not added after the last one.
+    ///
+    /// <see cref="TextSize.Auto"/> has no answer here, because what fits depends on the cell;
+    /// ask <see cref="FontFor"/> with the cell you mean, or name a size.
     /// </summary>
-    public static Vector2I MeasureLabel(string text, TextSize size = TextSize.Tiny) =>
-        PixelFont.Measure(text) * (int)size;
+    public static Vector2I MeasureLabel(string text, TextSize size = TextSize.Small, int scale = 1) =>
+        Font(size, "MeasureLabel").Measure(text) * RequireScale(scale);
+
+    /// <summary>
+    /// Which font a label would be drawn in on a given cell: the resolution of
+    /// <see cref="TextSize.Auto"/>, exposed so a caller can measure or align against the same
+    /// answer the drawing will use.
+    /// </summary>
+    public static PixelFont FontFor(Vector2I tile, string text, TextSize size = TextSize.Auto,
+                                    int scale = 1) =>
+        Resolve(size, text, View.ScreenRectOf(tile).Size, RequireScale(scale));
+
+    private static PixelFont Resolve(TextSize size, string text, Vector2 cell, int scale) =>
+        size == TextSize.Auto
+            ? PixelFont.LargestFitting(text, cell, scale)
+            : Font(size, "Label");
+
+    private static PixelFont Font(TextSize size, string what) => size switch
+    {
+        TextSize.Small  => PixelFont.Small,
+        TextSize.Medium => PixelFont.Medium,
+        TextSize.Large  => PixelFont.Large,
+        TextSize.Auto   => throw new AssertionException(
+            $"{what} needs a named TextSize; Auto means \"the largest that fits this cell\", " +
+            "which has no answer without a cell. Use Overlay.FontFor(tile, text) to resolve it."),
+        _ => throw new AssertionException($"unknown TextSize {size}"),
+    };
+
+    private static int RequireScale(int scale) =>
+        scale >= 1 ? scale : throw new AssertionException($"a text scale must be at least 1; got {scale}");
 
     /// <summary>Drops every retained mark. Painters are left alone; see <see cref="RemovePainter"/>.</summary>
     public static void Clear() => Marks.Clear();
@@ -308,6 +361,57 @@ public static class Overlay
     /// <summary>Whether the player is holding Alt right now, read the same way the game reads it.</summary>
     public static bool AltHeld => Input.IsKeyPressed(Key.Alt);
 
+    // ------------------------------------------------------- the stretched viewport
+
+    /// <summary>
+    /// How many window pixels the engine paints for each viewport pixel, once the whole
+    /// rendered frame has been scaled to the window.
+    ///
+    /// The project sets <c>display/window/stretch/mode = viewport</c> over a fixed 1600x900
+    /// render target, so the game does not draw at the window's resolution at all: it draws
+    /// at 1600x900 and the engine rescales the finished frame to whatever size the window is.
+    /// Every coordinate in this class, and in <see cref="View.ScreenOf"/>, is a pixel of that
+    /// render target, because that is the space the game itself computes in.
+    ///
+    /// The default window is 1280x720, so this is normally 0.8: the final blit resamples the
+    /// entire frame, the game's own art included, and a one-pixel-wide feature survives it
+    /// only by luck. That is invisible in the world art and glaring in a bitmap font, which
+    /// is why <see cref="PixelPerfect"/> exists: the overlay draws exactly either way, and
+    /// this says whether that exactness reaches the window.
+    /// </summary>
+    public static Vector2 WindowScale
+    {
+        get
+        {
+            var viewport = Game.CanvasLayer?.GetViewport().GetVisibleRect().Size ?? Vector2.Zero;
+            if (viewport.X <= 0f || viewport.Y <= 0f)
+                return Vector2.One;
+            return (Vector2)DisplayServer.WindowGetSize() / viewport;
+        }
+    }
+
+    /// <summary>
+    /// Whether what is drawn here survives to the window unresampled: true when the window is
+    /// the render target's size or a whole multiple of it.
+    ///
+    /// False does not mean the overlay is wrong, and nothing here can make it true: the
+    /// rescale happens to the finished frame, after everything inside it has been drawn. It
+    /// means the engine is scaling the frame by a fraction, so some rows and columns of every
+    /// one-pixel feature are doubled or dropped on the way to the window and a bitmap glyph
+    /// comes out lopsided. The remedy is a window the frame does not need rescaling to fill,
+    /// which is a display concern rather than a drawing one.
+    /// </summary>
+    public static bool PixelPerfect
+    {
+        get
+        {
+            var s = WindowScale;
+            return Mathf.IsEqualApprox(s.X, s.Y)
+                && s.X >= 1f
+                && Mathf.IsEqualApprox(s.X, Mathf.Round(s.X));
+        }
+    }
+
     /// <summary>
     /// How many cells the painters were run over on the last frame they ran. Zero when no
     /// painter is registered, or when every one of them is waiting on Alt.
@@ -328,6 +432,7 @@ public static class Overlay
 
     private static CanvasLayer? _layer;
     private static Rid _item;
+    private static bool? _headless;
     private static bool _warnedHeadless;
 
     /// <summary>
@@ -338,7 +443,9 @@ public static class Overlay
 
     private static bool EnsureCanvas()
     {
-        if (DisplayServer.GetName() == "headless")
+        // Cached: asking the engine allocates a string, and this runs every frame.
+        _headless ??= DisplayServer.GetName() == "headless";
+        if (_headless.Value)
         {
             if (!_warnedHeadless)
             {
@@ -361,6 +468,9 @@ public static class Overlay
         // CanvasItem subclass of ours would never have its _Draw called. The server API needs
         // no generated bridge and gives exact control over the command list.
         _layer = new CanvasLayer { Name = "AtomTestOverlay", Layer = LayerAboveEverything };
+        // A canvas item is a server resource, not a node, so nothing frees it when the tree
+        // goes away; without this the engine reports a leaked RID at every exit.
+        _layer.TreeExiting += ReleaseCanvasItem;
         root.AddChild(_layer);
 
         _item = RenderingServer.CanvasItemCreate();
@@ -369,6 +479,15 @@ public static class Overlay
         RenderingServer.CanvasItemSetDefaultTextureFilter(
             _item, RenderingServer.CanvasItemTextureFilter.Nearest);
         return true;
+    }
+
+    private static void ReleaseCanvasItem()
+    {
+        if (_item.IsValid)
+            RenderingServer.FreeRid(_item);
+        _item = default;
+        _layer = null;
+        PixelFont.ReleaseAll();
     }
 
     /// <summary>
@@ -387,6 +506,13 @@ public static class Overlay
         if (!Game.InSession || UI.CurrentPageId != PageId.Gameplay)
             return;
         if (Marks.Count == 0 && Painters.Count == 0)
+            return;
+
+        // Everything below projects through the camera, and the painter pass asks the game
+        // which cells it is rendering, which reads the avatar's tile. Both are missing for a
+        // few frames around a world load, and skipping those frames is better than letting
+        // the redraw backstop tear the overlay down over them.
+        if (Client.FollowCam == null || !GodotObject.IsInstanceValid(Avatars.LocalAvatar))
             return;
 
         foreach (var mark in Marks)
@@ -414,12 +540,20 @@ public static class Overlay
         var visible = View.VisibleTiles;
         var cell = View.CellScreenSize;
 
+        // Projected once for the corner and stepped from there, rather than through
+        // View.WorldToScreen per cell: that asks the engine for the camera and the viewport
+        // on every call, and this loop runs once per visible cell per frame, which is tens of
+        // thousands of times at the zoomed-out default.
+        var corner = View.WorldToScreen(
+            new Vector2(visible.min.X * View.TileSize, visible.min.Y * View.TileSize));
+
         for (var y = visible.min.Y; y < visible.max.Y; y++)
         for (var x = visible.min.X; x < visible.max.X; x++)
         {
             var tile = new Vector2I(x, y);
-            var screen = new Rect2(View.WorldToScreen(new Vector2(x * View.TileSize, y * View.TileSize)),
-                                   new Vector2(cell, cell));
+            var screen = new Rect2(corner.X + (x - visible.min.X) * cell,
+                                   corner.Y + (y - visible.min.Y) * cell,
+                                   cell, cell);
             var pixel = new VisiblePixel(tile, field.Get(x, y), screen);
 
             foreach (var painter in Due)
@@ -471,22 +605,27 @@ public static class Overlay
     }
 
     internal static void DrawLabel(Rect2 screen, string text, Color color,
-                                   TextSize size, LabelPlacement placement)
+                                   TextSize size, LabelPlacement placement, int scale = 1)
     {
         if (string.IsNullOrEmpty(text))
             return;
 
-        var scale = (int)size;
-        var measured = (Vector2)PixelFont.Measure(text) * scale;
         var cell = Snap(screen);
+        scale = RequireScale(scale);
+        var font = Resolve(size, text, cell.Size, scale);
+        var measured = (Vector2)font.Measure(text) * scale;
+
+        // One font pixel of clearance, so a label is never flush against the edge it is
+        // placed from and stays distinguishable from an outline on the same cell.
+        var gap = scale;
 
         var origin = placement switch
         {
-            LabelPlacement.TopLeft => new Vector2(cell.Position.X + scale, cell.Position.Y + scale),
+            LabelPlacement.TopLeft => new Vector2(cell.Position.X + gap, cell.Position.Y + gap),
             LabelPlacement.Above   => new Vector2(cell.GetCenter().X - measured.X / 2f,
-                                                  cell.Position.Y - measured.Y - scale),
+                                                  cell.Position.Y - measured.Y - gap),
             LabelPlacement.Below   => new Vector2(cell.GetCenter().X - measured.X / 2f,
-                                                  cell.End.Y + scale),
+                                                  cell.End.Y + gap),
             _                      => cell.GetCenter() - measured / 2f,
         };
 
@@ -494,7 +633,7 @@ public static class Overlay
         // and a glyph's blocks all come out the same size.
         origin = new Vector2(Mathf.Round(origin.X), Mathf.Round(origin.Y));
 
-        var atlas = PixelFont.Atlas.GetRid();
+        var atlas = font.Atlas.GetRid();
         var lines = text.Split('\n');
         for (var line = 0; line < lines.Length; line++)
         for (var i = 0; i < lines[line].Length; i++)
@@ -503,11 +642,11 @@ public static class Overlay
             if (c == ' ')
                 continue;
             var dest = new Rect2(
-                origin.X + i * PixelFont.Advance * scale,
-                origin.Y + line * PixelFont.LineHeight * scale,
-                PixelFont.GlyphWidth * scale,
-                PixelFont.GlyphHeight * scale);
-            RenderingServer.CanvasItemAddTextureRectRegion(_item, dest, atlas, PixelFont.Region(c), color);
+                origin.X + i * font.Advance * scale,
+                origin.Y + line * font.LineHeight * scale,
+                font.GlyphWidth * scale,
+                font.GlyphHeight * scale);
+            RenderingServer.CanvasItemAddTextureRectRegion(_item, dest, atlas, font.Region(c), color);
         }
     }
 

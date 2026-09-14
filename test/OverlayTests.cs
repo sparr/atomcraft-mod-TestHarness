@@ -43,7 +43,7 @@ public static class OverlayTests
     /// this needs no display.
     /// </summary>
     [GameTest]
-    public static void EveryGlyphIsWellFormed() => PixelFont.Validate();
+    public static void EveryGlyphIsWellFormed() => PixelFont.ValidateAll();
 
     /// <summary>
     /// The advertised geometry: a 3x5 glyph on a 4x6 grid, with the spacing between
@@ -52,11 +52,26 @@ public static class OverlayTests
     [GameTest]
     public static void LabelsMeasureToTheAdvertisedGrid()
     {
-        Expect(new Vector2I(3, 5), Overlay.MeasureLabel("7"), "one Tiny character");
-        Expect(new Vector2I(7, 5), Overlay.MeasureLabel("42"), "two Tiny characters");
-        Expect(new Vector2I(3, 11), Overlay.MeasureLabel("4\n2"), "two Tiny lines");
-        Expect(new Vector2I(14, 10), Overlay.MeasureLabel("42", TextSize.Small), "two Small characters");
-        Expect(new Vector2I(28, 20), Overlay.MeasureLabel("42", TextSize.Large), "two Large characters");
+        // Small: 3x5 glyphs, 1 spacing. A lone glyph measures its lit area; a second costs a
+        // full advance; a second line costs a line height. The other sizes are the same
+        // arithmetic with their own numbers, which is the whole contract of a bitmap font.
+        Expect(new Vector2I(3, 5), Overlay.MeasureLabel("7"), "one Small character");
+        Expect(new Vector2I(7, 5), Overlay.MeasureLabel("42"), "two Small characters");
+        Expect(new Vector2I(3, 11), Overlay.MeasureLabel("4\n2"), "two Small lines");
+
+        // Medium: 5x7 glyphs, 2 spacing.
+        Expect(new Vector2I(5, 7), Overlay.MeasureLabel("7", TextSize.Medium), "one Medium character");
+        Expect(new Vector2I(12, 7), Overlay.MeasureLabel("42", TextSize.Medium), "two Medium characters");
+        Expect(new Vector2I(5, 16), Overlay.MeasureLabel("4\n2", TextSize.Medium), "two Medium lines");
+
+        // Large: 9x13 glyphs, 3 spacing.
+        Expect(new Vector2I(9, 13), Overlay.MeasureLabel("7", TextSize.Large), "one Large character");
+        Expect(new Vector2I(21, 13), Overlay.MeasureLabel("42", TextSize.Large), "two Large characters");
+        Expect(new Vector2I(9, 29), Overlay.MeasureLabel("4\n2", TextSize.Large), "two Large lines");
+
+        // Scale multiplies whichever size was named.
+        Expect(new Vector2I(42, 26), Overlay.MeasureLabel("42", TextSize.Large, scale: 2),
+               "two Large characters at 2x");
 
         static void Expect(Vector2I want, Vector2I got, string what)
         {
@@ -297,7 +312,7 @@ public static class OverlayTests
 
             // A whole Tiny label has to fit inside one cell at this zoom; that is the claim
             // the smallest font size is making.
-            var label = Overlay.MeasureLabel("1234", TextSize.Tiny);
+            var label = Overlay.MeasureLabel("1234", TextSize.Small);
             if (label.X > View.CellScreenSize)
                 throw new AssertionException(
                     $"a four character Tiny label is {label.X} pixels wide but a cell is only " +
@@ -483,6 +498,10 @@ public static class OverlayTests
     [GameTest(RequiresDisplay = true)]
     public static IEnumerator GlyphsDrawTheRightWayUp()
     {
+        // Blocks bigger than one pixel, so sampling their middles has something to be
+        // tolerant with; at scale 1 a 'block' is a single pixel and the tolerance is gone.
+        const int LabelScale = 3;
+
         yield return Session.Enter("flat");
         var tile = Anchor();
         yield return View.LookAt(tile);
@@ -496,7 +515,7 @@ public static class OverlayTests
             // Black under white, so "lit" and "unlit" are unambiguous whatever the world is
             // doing underneath, and both are painted by the overlay in the intended order.
             Overlay.Fill(tile, Colors.Black);
-            Overlay.Label(tile, "L", Colors.White, TextSize.Large);
+            Overlay.Label(tile, "L", Colors.White, TextSize.Large, scale: LabelScale);
             yield return Wait.Frames(3);
 
             var image = Game.CanvasLayer.GetViewport().GetTexture()?.GetImage();
@@ -505,16 +524,17 @@ public static class OverlayTests
 
             Artifacts.WriteBytes("overlay.png", image.SavePngToBuffer());
 
-            const int scale = (int)TextSize.Large;
-            var measured = Overlay.MeasureLabel("L", TextSize.Large);
+            var measured = Overlay.MeasureLabel("L", TextSize.Large, LabelScale);
             var origin = View.ScreenOf(tile) - (Vector2)measured / 2f;
 
-            // 'L' is  #..  #..  #..  #..  ###
+            // Large 'L' is a two-pixel stem down the left with the foot on the baseline,
+            // row 9 of the 13: "##......." nine times over, then "#########".
             Lit(0, 0, "the top of the stem");
-            Dark(2, 0, "the top right, which is only lit if the glyph is upside down");
-            Lit(0, 4, "the foot of the stem");
-            Lit(2, 4, "the end of the foot");
-            Dark(2, 2, "the open middle right");
+            Dark(4, 0, "the top right, which is only lit if the glyph is upside down");
+            Lit(0, 9, "the foot of the stem");
+            Lit(8, 9, "the far end of the foot");
+            Dark(4, 4, "the open middle right");
+            Dark(4, 11, "the descender zone, which an 'L' does not reach into");
 
             void Lit(int fx, int fy, string what)
             {
@@ -536,8 +556,8 @@ public static class OverlayTests
             // still reads the block that was meant.
             Color Sample(int fx, int fy)
             {
-                var x = (int)Math.Round(origin.X) + fx * scale + scale / 2;
-                var y = (int)Math.Round(origin.Y) + fy * scale + scale / 2;
+                var x = (int)Math.Round(origin.X) + fx * LabelScale + LabelScale / 2;
+                var y = (int)Math.Round(origin.Y) + fy * LabelScale + LabelScale / 2;
                 return image.GetPixel(Mathf.Clamp(x, 0, image.GetWidth() - 1),
                                       Mathf.Clamp(y, 0, image.GetHeight() - 1));
             }
@@ -549,6 +569,164 @@ public static class OverlayTests
         }
 
         yield return Session.Leave();
+    }
+
+    /// <summary>
+    /// Every font pixel arrives as a block of exactly the size it was drawn at.
+    ///
+    /// GlyphsDrawTheRightWayUp samples the middle of each block on purpose, so that being a
+    /// pixel out anywhere upstream still reads the block that was meant. That tolerance is
+    /// right for checking a glyph's shape and it is precisely why it cannot see a doubled row:
+    /// a glyph stretched by a fraction still has the right pixel in the middle of every block.
+    /// This measures the extent instead. '|' is one lit column five rows tall, so at scale N it
+    /// has to arrive as a solid block exactly N by 5N; anything else is a row or column the
+    /// frame gained or lost between the draw and the render target.
+    ///
+    /// A filled patch underneath bounds the search, so nothing here depends on what the world
+    /// happens to look like.
+    ///
+    /// What is read back is the game's render target, which is what the overlay draws into.
+    /// The engine rescales that finished frame to the window afterwards, and whether that
+    /// rescale preserves a one-pixel row is a display concern outside this test and outside
+    /// the harness; see Overlay.WindowScale and Overlay.PixelPerfect. This test is the claim
+    /// the harness can actually make: what it drew was exact when it left.
+    /// </summary>
+    [GameTest(RequiresDisplay = true)]
+    public static IEnumerator GlyphsArriveInTheFrameAsExactBlocks()
+    {
+        yield return Session.Enter("flat");
+        var tile = Anchor();
+        yield return View.LookAt(tile);
+
+        var ink = new Color(1f, 0f, 1f);
+        const int scale = 4;
+
+        var restore = View.MaxZoomFactor;
+        try
+        {
+            // At maximum zoom, which is where a doubled row is noticed, and where the glyph
+            // has the most cell to sit in. The drawing is zoom independent, so this is about
+            // reproducing the conditions someone reports from rather than about the geometry.
+            View.MaxZoomFactor = 8;
+            yield return View.SetZoom(View.MaxZoom);
+
+            // Opaque and larger than the glyph, so every pixel searched is either backdrop or
+            // ink and the world underneath cannot be mistaken for either.
+            var patch = new RectInt(tile.X - 4, tile.Y - 4, 9, 9);
+            Overlay.Fill(patch, Colors.Black);
+            // Small on purpose: its '|' is exactly one lit column five rows tall, which makes
+            // the expected block trivially stateable. DrawLabel is shared by all three sizes,
+            // so proving the path is exact for one proves it for all.
+            Overlay.Label(tile, "|", ink, TextSize.Small, scale: scale);
+            yield return Wait.Frames(3);
+
+            var image = Game.CanvasLayer.GetViewport().GetTexture()?.GetImage();
+            if (image == null || image.GetWidth() == 0)
+                Harness.Inapplicable("the viewport cannot be read back on this renderer");
+
+            var area = View.ScreenRectOf(new Vector2I(patch.X, patch.Y));
+            var cell = View.CellScreenSize;
+            var x0 = Math.Max(0, Mathf.FloorToInt(area.Position.X));
+            var y0 = Math.Max(0, Mathf.FloorToInt(area.Position.Y));
+            var x1 = Math.Min(image.GetWidth(), Mathf.CeilToInt(area.Position.X + patch.width * cell));
+            var y1 = Math.Min(image.GetHeight(), Mathf.CeilToInt(area.Position.Y + patch.height * cell));
+
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue, lit = 0;
+            for (var y = y0; y < y1; y++)
+            for (var x = x0; x < x1; x++)
+            {
+                var c = image.GetPixel(x, y);
+                if (c.R <= 0.5f || c.G >= 0.5f || c.B <= 0.5f)
+                    continue;
+                lit++;
+                minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+            }
+
+            if (lit == 0)
+                throw new AssertionException(
+                    $"no glyph reached the frame inside the patch at ({x0},{y0})-({x1},{y1}); " +
+                    $"zoom={View.Zoom}, cell={cell}, windowScale={Overlay.WindowScale}");
+
+            var width = maxX - minX + 1;
+            var height = maxY - minY + 1;
+            var wantHeight = PixelFont.Small.GlyphHeight * scale;
+            if (width != scale || height != wantHeight || lit != width * height)
+                throw new AssertionException(
+                    $"a Small '|' at {scale}x arrived as a {width}x{height} shape covering {lit} pixels; " +
+                    $"expected a solid {scale}x{wantHeight} block. A bar wider or taller than " +
+                    "that is a doubled column or row, which means the frame was resampled " +
+                    $"between the draw and the read. windowScale={Overlay.WindowScale}, " +
+                    $"pixelPerfect={Overlay.PixelPerfect}");
+        }
+        finally
+        {
+            View.MaxZoomFactor = restore;
+            Overlay.Clear();
+        }
+
+        yield return Session.Leave();
+    }
+
+
+    /// <summary>
+    /// Auto picks the largest size that fits, and falls back rather than drawing nothing.
+    ///
+    /// Pure arithmetic over the three sizes' metrics, so it runs headless: what a cell of a
+    /// given size can hold does not depend on there being a screen.
+    /// </summary>
+    [GameTest]
+    public static void AutoPicksTheLargestSizeThatFits()
+    {
+        // "42" needs 21x13 in Large, 12x7 in Medium, 7x5 in Small.
+        Expect(new Vector2(96, 96), PixelFont.Large, "a cell with room for anything");
+        Expect(new Vector2(21, 13), PixelFont.Large, "a cell that fits Large exactly");
+        Expect(new Vector2(20, 13), PixelFont.Medium, "a cell one pixel too narrow for Large");
+        Expect(new Vector2(21, 12), PixelFont.Medium, "a cell one pixel too short for Large");
+        Expect(new Vector2(12, 7), PixelFont.Medium, "a cell that fits Medium exactly");
+        Expect(new Vector2(11, 7), PixelFont.Small, "a cell one pixel too narrow for Medium");
+        Expect(new Vector2(7, 5), PixelFont.Small, "a cell that fits Small exactly");
+
+        // Nothing fits, and the smallest is drawn anyway: a label spilling past its cell can
+        // still be read, and an empty cell is indistinguishable from one nobody labelled.
+        Expect(new Vector2(2, 2), PixelFont.Small, "a cell too small for any size");
+
+        // Scale is part of what has to fit, so raising it steps down through the sizes rather
+        // than overflowing.
+        if (PixelFont.LargestFitting("42", new Vector2(21, 13), scale: 2) != PixelFont.Small)
+            throw new AssertionException(
+                "at 2x, \"42\" needs 42x26 in Large and 24x14 in Medium, so a 21x13 cell should " +
+                $"fall to Small; got {PixelFont.LargestFitting("42", new Vector2(21, 13), 2)}");
+
+        static void Expect(Vector2 box, PixelFont want, string what)
+        {
+            var got = PixelFont.LargestFitting("42", box);
+            if (got != want)
+                throw new AssertionException($"{what} ({box}) chose {got}, expected {want}");
+        }
+    }
+
+    /// <summary>
+    /// The sizes are distinct fonts rather than one font scaled, which is the whole reason for
+    /// having three. Checked on the metrics, since a 3x5 glyph magnified is still 3x5.
+    /// </summary>
+    [GameTest]
+    public static void TheThreeSizesAreDistinctFonts()
+    {
+        Expect(PixelFont.Small, 3, 5, 1, descenders: false);
+        Expect(PixelFont.Medium, 5, 7, 2, descenders: false);
+        Expect(PixelFont.Large, 9, 13, 3, descenders: true);
+
+        static void Expect(PixelFont font, int w, int h, int spacing, bool descenders)
+        {
+            if (font.GlyphWidth != w || font.GlyphHeight != h || font.Spacing != spacing)
+                throw new AssertionException(
+                    $"{font.Name} is {font.GlyphWidth}x{font.GlyphHeight} with {font.Spacing} " +
+                    $"spacing, expected {w}x{h} with {spacing}");
+            if (font.HasDescenders != descenders)
+                throw new AssertionException(
+                    $"{font.Name} reports HasDescenders={font.HasDescenders}, expected {descenders}");
+        }
     }
 
     /// <summary>
