@@ -372,6 +372,9 @@ public static class TestExecutor
         _running.Clear();
         _waiting = null;
         FrameHolds.Clear();
+        // Marks and painters belong to the test that registered them; leaving them up would
+        // put one test's annotations on the next one's screenshot.
+        Overlay.Reset();
         ExceptionSuppressor.Context = "run";
         _watch?.Stop();
         test.ElapsedMs = _watch?.ElapsedMilliseconds ?? 0;

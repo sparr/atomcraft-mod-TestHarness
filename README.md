@@ -470,6 +470,135 @@ a few consecutive frames, because warping the OS cursor is not the same as the g
 it there. If the view is not pinned it never settles, and the test times out reporting
 exactly that.
 
+### Getting the mod loader out of the picture
+
+The mod loader puts an opaque full-screen report over the game at startup and leaves it there
+until someone presses Continue. In a suite run nobody does, so every headful screenshot would
+be a picture of the report. The harness dismisses it when a run starts, and
+`View.DismissModLoaderReport()` does the same thing on demand for a mod driving the game
+itself. Nothing is lost: the report only restates what the loader already wrote to
+`godot.log`, which the harness checks more strictly in its own mod validation.
+
+### Getting closer than the game normally allows
+
+The game stops zooming in at 1.5, which puts a simulation cell at 12 screen pixels. That is
+the right limit for playing and the wrong one for looking at a single pixel, so the harness
+can raise it, by up to eight times:
+
+```csharp
+View.MaxZoomFactor = 8;               // the zoom-in key now reaches 12.0 instead of 1.5
+yield return View.SetZoom(12f);       // or go straight there, without the easing
+```
+
+`MaxZoomFactor` raises the ceiling and nothing else: the player's own zoom keys keep working,
+at the game's speed and with the game's easing, and simply stop later. `View.SetZoom` is for a
+test that wants a known view on a known frame, so it sets the camera and its easing target
+together rather than drifting toward the target over the next forty frames. Asking for more
+than the current ceiling is refused rather than clamped, because a screenshot taken at a zoom
+nobody asked for is a screenshot that means something other than it says.
+
+Lowering `MaxZoomFactor` again brings the camera back inside the new limit, so a test that
+raises it, zooms in, and puts it back does not leave the next test looking at a view nobody
+asked for.
+
+The numbers have names rather than being written into your test: `View.GameMaxZoom` is the
+game's own 1.5, `View.MaxZoomFactorLimit` is the 8 the factor is capped at, and `View.MaxZoom`
+is what the two currently come to. `View.Zoom` is where the camera is now and
+`View.ZoomTarget` is where it is easing to; they differ only for a moment after the player
+works the zoom keys.
+
+Zooming out is left alone. Its lower limit is the zoom below which the camera would see past
+the edge of the window the game renders, which is a real constraint rather than a chosen one.
+
+### Where a pixel is on screen
+
+```csharp
+Vector2 at    = View.ScreenOf(tile);        // the cell's center, in viewport pixels
+Rect2   box   = View.ScreenRectOf(tile);    // the rectangle it covers
+float   size  = View.CellScreenSize;        // 8 * zoom
+Vector2 any   = View.WorldToScreen(pos);    // any world position, not just a cell
+Vector2I back = View.TileAt(screenPos);     // and the way back
+RectInt shown = View.VisibleTiles;          // every cell the player can currently see
+bool    onIt  = View.IsVisible(tile);       // whether one cell is among them
+```
+
+These are the inverse of the game's own `Utils.ScreenPositionToWorldPosition`, so they agree
+with the mapping the game uses to decide which cell the mouse is over. `VisibleTiles` is
+bounded by three things that all matter: what fits on screen at this zoom, the fixed window of
+cells the game actually renders around the avatar, and the edges of the simulation field.
+
+The coordinates are *viewport* pixels, which is the space a canvas draws in and the space the
+game reports the mouse in. The OS window can be a scaled copy of the viewport, which is why
+`Cursor.Hover` steers the real cursor by observation rather than computing a warp point from
+these.
+
+### Drawing on the game
+
+`Overlay` draws on top of the running game. Marks are given in cell coordinates and redrawn
+every frame, so they track their pixels as the view pans and zooms, and they are drawn above
+the world and the HUD rather than inside the world texture, so a mark is the colour you asked
+for even over a dark or unexplored cell. That is deliberate: what you are usually looking at
+is why a cell is *not* what you expected.
+
+```csharp
+Overlay.Fill(tile, new Color(1f, 0f, 1f, 0.5f));   // tint the whole cell
+Overlay.Outline(tile, Colors.Lime, thickness: 2f); // a border just inside the cell's edges
+Overlay.Label(tile, "leak", Colors.Red, TextSize.Small, LabelPlacement.Above);
+Overlay.Clear();                                    // marks last until this, or the test's end
+```
+
+Text is a bitmap font drawn at a whole-number scale from a whole-number screen position, so
+every font pixel is an exact block of screen pixels at any zoom, with nothing to blur.
+`TextSize.Tiny` is the smallest: a 3x5 glyph on a 4x6 grid. One cell is `8 * zoom` screen
+pixels, so a Tiny character fits *inside* a cell from about 6x zoom, and four of them fit at
+8x. `Small`, `Medium` and `Large` are the same font at two, three and four times the size.
+Digits and capitals are what 3x5 is good at; lowercase has no room for real descenders and is
+drawn as distinct short forms, and a little punctuation (`$`, `&`, `@`) is approximate. If a
+label has to be read exactly, say it in digits and capitals or step up a size.
+`Overlay.MeasureLabel` gives the size of a label if you want to place one yourself, and
+`PixelFont` exposes the underlying metrics (`GlyphWidth`, `GlyphHeight`, `Advance`,
+`LineHeight`) for anything finer.
+
+### A callback for every pixel on screen
+
+A mod showing its own per-cell state wants to draw *all* of it, not a list of cells it picked
+in advance. A painter runs for every visible cell, every frame:
+
+```csharp
+Overlay.SetPainter("pressure", p =>
+{
+    var excess = Pressure.ExcessAt(p.Tile);
+    if (excess > 0)
+        p.Label(excess.ToString(), Colors.White);
+}, OverlayWhen.AltHeld);
+```
+
+Each call is handed a `VisiblePixel`: the cell's `Tile`, the `MaterialTypeId` in it (the id
+space `SimField` stores, so `-1` is air), and the `Screen` rectangle it covers, plus `Fill`,
+`Outline` and `Label` for marking that one cell. Draw calls made from a painter last for that
+frame only, which is what makes a painter the right shape for state that changes as the
+simulation runs. `Overlay.PixelsPaintedLastFrame` says how many cells the last frame walked,
+which is the quickest way to tell "my painter is wrong" from "my painter never ran".
+
+Painters are as useful during a human play test as during an automated one, so they are not
+tied to a test running, and `Overlay.RemovePainter(name)` takes one down. But note that
+`Overlay.Reset()` drops every mark and every painter whoever registered them, and it runs
+automatically at the end of every test: a mod's own debug painter drawing across every test's
+screenshot would make those screenshots evidence of something other than the test. So a
+painter registered from a mod's `Initialize` survives an ordinary play session, where no test
+ever ends, and does not survive the first test of a run.
+
+`OverlayWhen.AltHeld` runs the painter only while the player holds Alt. That is already the
+game's own "tell me more" modifier, so a painter gated this way joins the gesture that already
+adds mass and coordinates to the hover box instead of inventing a new one. It is also the
+cheap option: a painter costs a call per visible cell per frame, which is about 57,000 of them
+at the default zoom on a 1920x1080 window and about 900 at 8x, and an Alt-gated painter is not
+called at all on the frames nobody asked for it.
+
+A painter that throws is removed rather than left to throw again next frame, because Godot
+logs an unhandled per-frame exception every frame with no backpressure and one bad hook is
+enough to fill a disk. The exception is logged, and if a test is running it fails that test.
+
 ## Mod state
 
 If your mod keeps per-cell data, register it and the harness can assert over it without

@@ -37,6 +37,56 @@ that asserts on live UI no longer reaches into game internals for any of it:
 - **`Session.CloseAllWindows()`** closes whatever UI window a fresh session opened, one-shot;
   `View.LookAt` is the held version.
 
+Visual feedback for headful runs, so a mod under test can be *looked at* and not only asserted
+on. These serve a human play test as much as an automated one, so none of them require a test
+to be running:
+
+- **`View.DismissModLoaderReport()`**, run automatically when a suite run starts. The mod
+  loader's load report is an opaque full-screen panel that stays up until someone presses
+  Continue, and in a suite run nobody does, so every headful screenshot was a picture of it.
+  It only restates what the loader already logged, which the harness validates more strictly
+  itself.
+- **`View.MaxZoomFactor`** raises the game's own zoom-in limit by up to eight times, to 12.0.
+  It raises the ceiling and nothing else: the player's zoom keys keep working at the game's
+  own speed and easing, and simply stop later. At 8x a simulation cell is 96 screen pixels.
+  **`View.SetZoom(z)`** goes straight to a zoom instead of easing toward it, for a test that
+  wants a known view on a known frame; it refuses a zoom past the current ceiling rather than
+  clamping to it. Lowering the factor again brings the camera back inside the new limit.
+  Zooming out is untouched, since its lower limit is a real constraint. `View.GameMaxZoom`,
+  `View.MaxZoomFactorLimit` and `View.MaxZoom` name the numbers, `View.Zoom` and
+  `View.ZoomTarget` read where the camera is and where it is easing to, and
+  `View.ZoomTargetFieldExists` lets the headless suite catch the game renaming the private
+  field all of this writes.
+- **`View.ScreenOf(tile)`, `View.ScreenRectOf(tile)`, `View.CellScreenSize`,
+  `View.WorldToScreen(pos)`, `View.TileAt(screen)`, `View.VisibleTiles`,
+  `View.IsVisible(tile)`** map between cells and the screen. They are the
+  inverse of the game's own `Utils.ScreenPositionToWorldPosition`, so they agree with the
+  mapping the game uses to decide which cell the mouse is over; `VisibleTiles` is bounded by
+  the screen, by the window of cells the game actually renders, and by the field's edges.
+- **`Overlay.Fill`, `Overlay.Outline`, `Overlay.Label`** draw on cells. Marks are given in
+  cell coordinates and redrawn every frame, so they follow their pixels as the view moves, and
+  they are drawn above the world and the HUD rather than into the world texture, so a mark is
+  the colour asked for even over a dark or unexplored cell. `Overlay.Clear()` drops them, as
+  does the end of a test. `Overlay.Reset()` is the total version, dropping painters too, and
+  is what the end of a test actually runs: a mod's own debug painter across every test's
+  screenshot would make those screenshots evidence of something other than the test.
+- **`TextSize.Tiny`** is a 3x5 bitmap glyph on a 4x6 grid, with `Small`, `Medium` and `Large`
+  at two, three and four times that. Drawn at whole-number scales from whole-number screen
+  positions through a nearest-neighbor filter, so every font pixel is an exact block of screen
+  pixels at any zoom. A Tiny character fits inside one cell from about 6x zoom.
+  `Overlay.MeasureLabel` sizes a label, and `PixelFont` exposes the metrics.
+- **`Overlay.SetPainter(name, painter, when)`** runs a callback for every cell on screen,
+  every frame, handing it a **`VisiblePixel`**: the tile, the material in it, the screen
+  rectangle it covers, and `Fill`/`Outline`/`Label` for that one cell. This is how a mod draws
+  its own per-cell state over a world someone is playing.
+  `Overlay.PixelsPaintedLastFrame` reports how many cells the last frame walked, which tells a
+  painter that is wrong apart from one that never ran, and `Overlay.AltHeld` exposes the gate's
+  own reading of the modifier.
+  **`OverlayWhen.AltHeld`** runs a painter only while the player holds Alt, joining the
+  modifier the game already uses for extra hover detail; on every other frame the painter is
+  not called at all. A painter that throws is removed and logged rather than left to throw
+  once a frame forever, and fails the running test if there is one.
+
 ### Fixed
 
 - **`OriginalTests.TheTwoAgreeOnceThePatchIsGone` failed when another mod patched `RNG.Roll`.**

@@ -50,6 +50,12 @@ public static class Runner
                     Diagnostics.MaterialIdSpaces();
                     Diagnostics.AmbientProfile();
                 }
+                // The loader's report sits opaque over the whole game until someone presses
+                // Continue, and in a suite run nobody will, so every headful screenshot would
+                // otherwise be a picture of it.
+                if (View.DismissModLoaderReport())
+                    Log.Info("dismissed the mod loader report so the game is visible");
+
                 TestExecutor.Begin(ModEntry.Options.Filter, ModEntry.Options.Exclude);
                 return;
             }
