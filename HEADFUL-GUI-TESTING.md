@@ -1,6 +1,6 @@
 # Notes toward first-class headful GUI testing
 
-> **Status:** implemented in 0.4.0-dev, in the shape this document asked for: `RequiresDisplay`
+> **Status:** implemented in 0.4.0, in the shape this document asked for: `RequiresDisplay`
 > on `[GameTest]`, `View.LookAt` (camera hold, windows held closed, fog lifted),
 > `View.RevealFog`, `Cursor.Hover`, `Hud.HoverBoxText`/`HoverBoxVisible`, and the audio drain
 > folded into `Session.Enter`. The one deliberate deviation: no `Session.EnterCleanView` entry
@@ -15,7 +15,7 @@
 > real, leashed camera.) The rest of the document is preserved as the reasoning behind those
 > calls.
 >
-> **Also in 0.4.0-dev, beyond what this document asked for:** the visual feedback surface a mod
+> **Also in 0.4.0, beyond what this document asked for:** the visual feedback surface a mod
 > needs once it is taking screenshots or running human play tests. `Overlay` fills, outlines
 > and labels cells above the world and the HUD; `Overlay.SetPainter` runs a callback over every
 > cell on screen each frame, optionally only while Alt is held; `View.MaxZoomFactor` raises the

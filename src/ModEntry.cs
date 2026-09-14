@@ -24,7 +24,7 @@ public static class ModEntry
     /// versions. Set it to the plain number when cutting a release, and back to the next -dev
     /// immediately afterwards.
     /// </summary>
-    public static readonly string Version = "0.4.0-dev";
+    public static readonly string Version = "0.4.0";
 
     /// <summary>Parsed from the args after <c>--</c> on the game command line.</summary>
     public static HarnessOptions Options { get; private set; } = new();

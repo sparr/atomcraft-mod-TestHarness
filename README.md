@@ -137,7 +137,7 @@ Check the harness version from your `Initialize`, since the loader's dependencie
 version constraint and the 0.x API changes between minor versions:
 
 ```csharp
-public static void Initialize() => Harness.RequireVersion("0.3");
+public static void Initialize() => Harness.RequireVersion("0.4");
 ```
 
 A mismatch fails every test in your mod with a message naming both versions, rather than only
@@ -146,7 +146,7 @@ would otherwise discover and run your tests against a harness that registered no
 channels, patches, or materials. They are failed rather than skipped, because a skipped test
 leaves the run green and a mod that ran nothing would report success.
 
-The check compares major and minor only, so `"0.3"` matches every 0.3.x. Install the new
+The check compares major and minor only, so `"0.4"` matches every 0.4.x. Install the new
 harness and change the pin together.
 
 Pin to the release you use. A build from `main` reports the *next* version with a `-dev`

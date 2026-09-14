@@ -2,13 +2,14 @@
 
 The API is public and **deliberately unstable through 0.x**. Breaking changes are expected
 between minor versions and are listed first in each entry. Consumers should call
-`Harness.RequireVersion("0.3")` from their `Initialize`, so a mismatch is reported clearly
+`Harness.RequireVersion("0.4")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
 
-## Unreleased
+## 0.4.0
 
-`main` reports `0.4.0-dev`, so a mod pinned to `"0.3"` is refused here and should stay on the
-v0.3.0 release until there is something to move for.
+Nothing here is breaking: the release is purely additive, the first that is. A mod pinned to
+`"0.3"` is still refused, since the check compares major and minor and cannot tell an addition
+from a removal, so move the pin to `"0.4"` when you install it.
 
 First-class headful GUI testing, from the needs writeup in `HEADFUL-GUI-TESTING.md`. A test
 that asserts on live UI no longer reaches into game internals for any of it:
