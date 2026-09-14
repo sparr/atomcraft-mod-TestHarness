@@ -501,6 +501,12 @@ Lowering `MaxZoomFactor` again brings the camera back inside the new limit, so a
 raises it, zooms in, and puts it back does not leave the next test looking at a view nobody
 asked for.
 
+The numbers have names rather than being written into your test: `View.GameMaxZoom` is the
+game's own 1.5, `View.MaxZoomFactorLimit` is the 8 the factor is capped at, and `View.MaxZoom`
+is what the two currently come to. `View.Zoom` is where the camera is now and
+`View.ZoomTarget` is where it is easing to; they differ only for a moment after the player
+works the zoom keys.
+
 Zooming out is left alone. Its lower limit is the zoom below which the camera would see past
 the edge of the window the game renders, which is a real constraint rather than a chosen one.
 
@@ -510,13 +516,21 @@ the edge of the window the game renders, which is a real constraint rather than 
 Vector2 at    = View.ScreenOf(tile);        // the cell's center, in viewport pixels
 Rect2   box   = View.ScreenRectOf(tile);    // the rectangle it covers
 float   size  = View.CellScreenSize;        // 8 * zoom
+Vector2 any   = View.WorldToScreen(pos);    // any world position, not just a cell
+Vector2I back = View.TileAt(screenPos);     // and the way back
 RectInt shown = View.VisibleTiles;          // every cell the player can currently see
+bool    onIt  = View.IsVisible(tile);       // whether one cell is among them
 ```
 
 These are the inverse of the game's own `Utils.ScreenPositionToWorldPosition`, so they agree
 with the mapping the game uses to decide which cell the mouse is over. `VisibleTiles` is
 bounded by three things that all matter: what fits on screen at this zoom, the fixed window of
 cells the game actually renders around the avatar, and the edges of the simulation field.
+
+The coordinates are *viewport* pixels, which is the space a canvas draws in and the space the
+game reports the mouse in. The OS window can be a scaled copy of the viewport, which is why
+`Cursor.Hover` steers the real cursor by observation rather than computing a warp point from
+these.
 
 ### Drawing on the game
 
@@ -538,8 +552,12 @@ every font pixel is an exact block of screen pixels at any zoom, with nothing to
 `TextSize.Tiny` is the smallest: a 3x5 glyph on a 4x6 grid. One cell is `8 * zoom` screen
 pixels, so a Tiny character fits *inside* a cell from about 6x zoom, and four of them fit at
 8x. `Small`, `Medium` and `Large` are the same font at two, three and four times the size.
-Digits and capitals are what 3x5 is good at; `Overlay.MeasureLabel` gives the size of a label
-if you want to place one yourself.
+Digits and capitals are what 3x5 is good at; lowercase has no room for real descenders and is
+drawn as distinct short forms, and a little punctuation (`$`, `&`, `@`) is approximate. If a
+label has to be read exactly, say it in digits and capitals or step up a size.
+`Overlay.MeasureLabel` gives the size of a label if you want to place one yourself, and
+`PixelFont` exposes the underlying metrics (`GlyphWidth`, `GlyphHeight`, `Advance`,
+`LineHeight`) for anything finer.
 
 ### A callback for every pixel on screen
 
@@ -555,10 +573,20 @@ Overlay.SetPainter("pressure", p =>
 }, OverlayWhen.AltHeld);
 ```
 
-Each call is handed the cell's tile, the material in it, and where it is on screen, and draws
-on it or does not. Painters are as useful during a human play test as during an automated one,
-so they are not tied to a test running; `Overlay.RemovePainter(name)` takes one down, and
-ending a test takes down everything that test registered.
+Each call is handed a `VisiblePixel`: the cell's `Tile`, the `MaterialTypeId` in it (the id
+space `SimField` stores, so `-1` is air), and the `Screen` rectangle it covers, plus `Fill`,
+`Outline` and `Label` for marking that one cell. Draw calls made from a painter last for that
+frame only, which is what makes a painter the right shape for state that changes as the
+simulation runs. `Overlay.PixelsPaintedLastFrame` says how many cells the last frame walked,
+which is the quickest way to tell "my painter is wrong" from "my painter never ran".
+
+Painters are as useful during a human play test as during an automated one, so they are not
+tied to a test running, and `Overlay.RemovePainter(name)` takes one down. But note that
+`Overlay.Reset()` drops every mark and every painter whoever registered them, and it runs
+automatically at the end of every test: a mod's own debug painter drawing across every test's
+screenshot would make those screenshots evidence of something other than the test. So a
+painter registered from a mod's `Initialize` survives an ordinary play session, where no test
+ever ends, and does not survive the first test of a run.
 
 `OverlayWhen.AltHeld` runs the painter only while the player holds Alt. That is already the
 game's own "tell me more" modifier, so a painter gated this way joins the gesture that already
