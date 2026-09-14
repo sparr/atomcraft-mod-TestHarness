@@ -16,6 +16,9 @@ public static class OriginalTests
 {
     private const int Sentinel = 4242;
 
+    /// <summary>Harmony id of this file's own patch, and the one owner a guard forgives.</summary>
+    private const string HarmonyId = "sparr.TestHarness.Test.original";
+
     /// <summary>Filled with the game's own Roll IL by Original.Bind.</summary>
     private static int RollOriginal(int posX, int posY, int tick) =>
         throw new NotImplementedException("not bound");
@@ -26,6 +29,30 @@ public static class OriginalTests
     private static bool _prepared;
     private static Harmony? _harmony;
 
+    private static MethodInfo RollTarget() =>
+        AccessTools.Method(typeof(RNG), nameof(RNG.Roll),
+            new[] { typeof(int), typeof(int), typeof(int) });
+
+    /// <summary>
+    /// Abstains when anyone other than this file has patched Roll.
+    ///
+    /// Roll is the subject precisely because it is what an RNG-modifying mod patches, so the
+    /// one target most likely to carry a foreign patch is the one an "unpatched Roll equals
+    /// its bound original" assertion assumes is clean. With such a patch installed the real
+    /// method is not the game's own code any more and the comparison proves nothing, so the
+    /// disagreement is not a defect in Original and must not be reported as one.
+    /// </summary>
+    private static void RequireNoForeignPatch()
+    {
+        var info = Harmony.GetPatchInfo(RollTarget());
+        var foreign = info?.Owners.Where(o => o != HarmonyId).OrderBy(o => o).ToList();
+        if (foreign is { Count: > 0 })
+            Harness.Inapplicable(
+                $"RNG.Roll is patched by {string.Join(", ", foreign)}, so the unpatched method " +
+                "is not the game's own code and comparing it against the bound original would " +
+                "measure that mod rather than Original");
+    }
+
     private static void Prepare()
     {
         if (_prepared) return;
@@ -35,16 +62,15 @@ public static class OriginalTests
             AccessTools.Method(typeof(OriginalTests), nameof(RollOriginal)),
             new[] { typeof(int), typeof(int), typeof(int) });
 
-        _harmony = new Harmony("sparr.TestHarness.Test.original");
+        _harmony = new Harmony(HarmonyId);
         _harmony.Patch(
-            AccessTools.Method(typeof(RNG), nameof(RNG.Roll),
-                new[] { typeof(int), typeof(int), typeof(int) }),
+            RollTarget(),
             postfix: new HarmonyMethod(typeof(OriginalTests), nameof(RollPostfix)));
     }
 
     private static void Restore()
     {
-        _harmony?.UnpatchAll("sparr.TestHarness.Test.original");
+        _harmony?.UnpatchAll(HarmonyId);
         _harmony = null;
     }
 
@@ -106,10 +132,15 @@ public static class OriginalTests
     /// <summary>
     /// Once unpatched, the real method agrees with the original again. This is what says the
     /// two paths are the same code rather than two implementations that merely differ.
+    ///
+    /// Only this file's own patch is removed, so the assertion holds only while nobody else
+    /// has patched Roll; with a foreign patch installed the test abstains and says so.
     /// </summary>
     [GameTest]
     public static void TheTwoAgreeOnceThePatchIsGone()
     {
+        RequireNoForeignPatch();
+
         Prepare();
         Restore();
 

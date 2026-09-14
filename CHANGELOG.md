@@ -39,6 +39,13 @@ that asserts on live UI no longer reaches into game internals for any of it:
 
 ### Fixed
 
+- **`OriginalTests.TheTwoAgreeOnceThePatchIsGone` failed when another mod patched `RNG.Roll`.**
+  The test removes only its own patch and then asserts that the real method matches the bound
+  original, which holds only if nobody else has patched the target. `RNG.Roll` is the subject
+  precisely because it is what an RNG-modifying mod patches, so the assertion's one assumption
+  was the one most likely to be false: with such a mod installed the real method returned that
+  mod's answer, the bound original returned the game's, and the disagreement was reported as a
+  defect in `Original`. The test now abstains, naming the owners it found.
 - **`Session.Enter` drains the game's stale audio buffers itself.** Pixel-movement audio
   counts accumulated during sessionless region tests reached the first session frame before
   `Game.LocalAvatar` existed and crashed `Audio.Process`; every session-entering test carried
