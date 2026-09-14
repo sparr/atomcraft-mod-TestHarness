@@ -7,6 +7,14 @@ namespace Atomcraft.TestHarness;
 public sealed class AssertionException : Exception
 {
     public AssertionException(string message) : base(message) { }
+
+    /// <summary>
+    /// Wraps something that was thrown somewhere the test could not see it, keeping the
+    /// original stack: a callback the harness runs on the test's behalf fails the test, and
+    /// a failure reported without the stack of the code that actually threw is a failure
+    /// nobody can act on.
+    /// </summary>
+    public AssertionException(string message, Exception inner) : base(message, inner) { }
 }
 
 /// <summary>
