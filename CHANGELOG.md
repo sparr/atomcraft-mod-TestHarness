@@ -5,6 +5,11 @@ between minor versions and are listed first in each entry. Consumers should call
 `Harness.RequireVersion("0.4")` from their `Initialize`, so a mismatch is reported clearly
 instead of surfacing later as a `MissingMethodException`.
 
+## Unreleased
+
+Nothing yet. `main` reports `0.5.0-dev`, so a mod pinned to `"0.4"` is refused here and should
+stay on the v0.4.0 release until there is something to move for.
+
 ## 0.4.0
 
 Nothing here is breaking: the release is purely additive, the first that is. A mod pinned to

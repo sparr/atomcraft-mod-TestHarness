@@ -150,7 +150,7 @@ The check compares major and minor only, so `"0.4"` matches every 0.4.x. Install
 harness and change the pin together.
 
 Pin to the release you use. A build from `main` reports the *next* version with a `-dev`
-suffix, currently `0.4.0-dev`, so that a mod pinned to the last release is refused as soon as
+suffix, currently `0.5.0-dev`, so that a mod pinned to the last release is refused as soon as
 the API moves rather than failing later with a missing method. If you are tracking `main`, pin
 to that instead and expect it to move.
 
